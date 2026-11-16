@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Omi Audio Retriever</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #667085; --line: #e3e6ea;
+    --accent: #3b5bdb; --accent-text: #ffffff; --danger: #c92a2a; --ok: #2b8a3e; --warn: #b36b00;
+    --bar: #e3e6ea; --code: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --card: #1b1e23; --text: #e8eaed; --muted: #9aa3ad; --line: #2c3036;
+      --accent: #6c8cff; --accent-text: #0b0e14; --danger: #ff6b6b; --ok: #51cf66; --warn: #ffa94d;
+      --bar: #2c3036; --code: #14171b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+           padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+  .stat { background: var(--code); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.bad { color: var(--danger); border-color: var(--danger); }
+  .bar { height: 10px; background: var(--bar); border-radius: 999px; overflow: hidden; margin: 10px 0 4px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .note { color: var(--muted); font-size: 13px; }
+  .banner { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; display: none; }
+  .rec { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 6px; }
+  .rec:first-child { border-top: 0; }
+  .rec .top { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .rec .when { font-weight: 600; }
+  .rec .meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .rec audio { width: 100%; height: 36px; }
+  .gap { display: flex; align-items: center; gap: 8px; }
+  input[type=number] { width: 70px; font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
+                       background: var(--card); color: var(--text); }
+  #log { background: var(--code); border-radius: 8px; padding: 10px; max-height: 200px; overflow: auto;
+         font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; margin: 0; }
+  #log .err { color: var(--danger); } #log .warn { color: var(--warn); }
+  details summary { cursor: pointer; color: var(--muted); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Omi Audio Retriever</h1>
+  <p class="sub">Download the audio your Omi recorded offline (stored on its SD card) over Bluetooth, straight from the browser. Nothing leaves your computer.</p>
+
+  <div class="banner" id="unsupported"></div>
+
+  <section>
+    <h2>1 · Connect</h2>
+    <div class="row">
+      <button class="primary" id="btnConnect">Connect to Omi</button>
+      <button id="btnDisconnect" class="hidden">Disconnect</button>
+      <span class="pill" id="connPill">Not connected</span>
+    </div>
+    <label class="note" style="display:block;margin-top:8px">
+      <input type="checkbox" id="chkAll"> Show all Bluetooth devices (use if your Omi isn't listed)
+    </label>
+    <p class="note" style="margin-bottom:0">Only one device can talk to the Omi at a time. Close the Omi phone app (or turn off the phone's Bluetooth) first.</p>
+    <div class="grid" id="devGrid" hidden>
+      <div class="stat"><b id="sName">–</b><span>Device</span></div>
+      <div class="stat"><b id="sFw">–</b><span>Firmware</span></div>
+      <div class="stat"><b id="sBat">–</b><span>Battery</span></div>
+      <div class="stat"><b id="sCodec">–</b><span>Audio codec</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Stored audio on device</h2>
+    <div class="row"><button id="btnInfo" disabled>Refresh</button></div>
+    <div class="grid" id="infoGrid" hidden>
+      <div class="stat"><b id="iUnread">–</b><span>Unread audio (records)</span></div>
+      <div class="stat"><b id="iSize">–</b><span>Unread size</span></div>
+      <div class="stat"><b id="iEst">–</b><span>Approx. duration</span></div>
+      <div class="stat"><b id="iCap">–</b><span>Card capacity used</span></div>
+      <div class="stat"><b id="iDrop">–</b><span>Overwritten (dropped) records</span></div>
+      <div class="stat"><b id="iClock">–</b><span>Device clock</span></div>
+    </div>
+    <p class="note" id="infoNote" style="margin-bottom:0"></p>
+  </section>
+
+  <section>
+    <h2>3 · Download</h2>
+    <div class="row">
+      <button class="primary" id="btnDownload" disabled>Download stored audio</button>
+      <button id="btnCancel" class="hidden">Cancel</button>
+      <button id="btnReset" disabled>Discard downloaded data</button>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="note" id="progText">Reading does <b>not</b> erase anything on the Omi. Your audio stays on the device until you explicitly free it below.</div>
+  </section>
+
+  <section>
+    <h2>4 · Recordings</h2>
+    <div class="row" style="justify-content:space-between">
+      <label class="gap note">Start a new recording after a silence of
+        <input type="number" id="gapSec" min="1" max="3600" value="30"> s</label>
+      <span class="row">
+        <button id="btnSaveAll" class="small" disabled>Save all as WAV…</button>
+        <button id="btnRaw" class="small" disabled>Save raw dump</button>
+      </span>
+    </div>
+    <div id="recs"><p class="note">Nothing downloaded yet.</p></div>
+  </section>
+
+  <section>
+    <h2>5 · Free device storage (optional)</h2>
+    <p class="note" style="margin-top:0">After you've saved your recordings, you can tell the Omi it may reuse the space for the audio you've downloaded. <b>This permanently removes that audio from the device</b>, so the Omi phone app will not see it either. Unavailable until a download has finished.</p>
+    <div class="row">
+      <label class="note"><input type="checkbox" id="chkSaved"> I have saved the files I want to keep</label>
+      <button class="danger" id="btnFree" disabled>Free space on Omi</button>
+    </div>
+  </section>
+
+  <section>
+    <details>
+      <summary>Activity log</summary>
+      <pre id="log"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+'use strict';
+
+/* =====================================================================
+ * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
+ *
+ * Storage service  30295780-4301-EABD-2904-2849ADFEAE43
+ *   30295781 (write + notify)  command / notification channel
+ *   30295782 (read)            status: 4 x u32 LE [used_bytes, unread_packets, free_bytes, rtc_valid]
+ *
+ * Commands (write):   0x10 INFO | 0x11 READ(seq u64 BE [, count u32 BE]) | 0x12 ADVANCE(seq)
+ *                     0x15 ADVANCE_ID(ring_id u64, seq u64) | 0x03 STOP
+ * Notifications:      0x01 ACK [status] | 0x02 INFO (41 B) | 0x03 DATA [raw bytes]
+ *                     0x04 DONE [status][next_seq u64] | 0x05 READ_BEGIN [seq u64][count u32]
+ * Record (444 B):     [timestamp u32 BE][440 B payload]  payload = [len u8][opus frame]... zero padded
+ * ===================================================================== */
+const UUID = {
+  audioSvc: '19b10000-e8f2-537e-4f6c-d104768a1214',
+  codec:    '19b10002-e8f2-537e-4f6c-d104768a1214',
+  storSvc:  '30295780-4301-eabd-2904-2849adfeae43',
+  storCmd:  '30295781-4301-eabd-2904-2849adfeae43',
+  storStat: '30295782-4301-eabd-2904-2849adfeae43',
+};
+const CMD = { STOP: 0x03, INFO: 0x10, READ: 0x11, ADVANCE: 0x12, ADVANCE_ID: 0x15 };
+const NOTE = { ACK: 1, INFO: 2, DATA: 3, DONE: 4, READ_BEGIN: 5, LIVE_MARK: 6 };
+const CAP_RING_ID = 0x08, CAP_APP_ACK_RECLAIM = 0x01;
+const REC_SIZE = 444, TS_BYTES = 4;
+const CHUNK_RECORDS = 2048;               // records per READ command (~0.9 MB)
+const UPTIME_FLAG = 0x80000000;           // bit 31 of timestamp: seconds since boot, not epoch
+const MIN_EPOCH = 1577836800;             // 2020-01-01; anything earlier = clock never set
+const ACK_TEXT = {
+  6: 'invalid command', 9: 'storage not ready (SD card still starting up? try again)',
+  10: 'sequence out of range', 11: 'ring id mismatch (device storage was reset; refresh and retry)',
+};
+
+/* ---------- small helpers ---------- */
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmtBytes = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB'
+  : n < 1073741824 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1073741824).toFixed(2) + ' GB';
+const fmtDur = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}h ${String(m).padStart(2, '0')}m ${String(x).padStart(2, '0')}s` : m ? `${m}m ${String(x).padStart(2, '0')}s` : `${x}s`; };
+const pad = n => String(n).padStart(2, '0');
+
+function log(msg, cls) {
+  const el = $('log'), line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  el.appendChild(line); el.scrollTop = el.scrollHeight;
+}
+
+function ackError(status) {
+  return new Error(`Device replied: ${ACK_TEXT[status] || 'error ' + status}`);
+}
+class CancelError extends Error { constructor() { super('Cancelled'); this.cancelled = true; } }
+
+/* ---------- parsing ---------- */
+function parseInfo(b) {
+  if (b.length < 31 || b[0] !== NOTE.INFO) return null;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  return {
+    readSeq: Number(dv.getBigUint64(1)), writeSeq: Number(dv.getBigUint64(9)),
+    capacity: dv.getUint32(17), dropped: Number(dv.getBigUint64(21)), recordSize: dv.getUint16(29),
+    caps: b.length >= 32 ? b[31] : 0, version: b.length >= 33 ? b[32] : 0,
+    ringId: b.length >= 41 ? dv.getBigUint64(33) : null,
+  };
+}
+
+/** Split one 440-byte payload into Opus frames: [len][frame]..., zero padded. */
+function parsePayload(p) {
+  const frames = []; let o = 0;
+  while (o < p.length) {
+    const n = p[o++];
+    if (n === 0) continue;
+    if (o + n > p.length) break;           // truncated tail / stale bytes
+    frames.push(p.subarray(o, o + n)); o += n;
+  }
+  return frames;
+}
+
+/** Duration in ms of an Opus packet, from its TOC byte (RFC 6716 §3.1). */
+function opusMs(f) {
+  const cfg = f[0] >> 3, code = f[0] & 3;
+  const ms = cfg < 12 ? [10, 20, 40, 60][cfg & 3] : cfg < 16 ? ((cfg & 1) ? 20 : 10) : [2.5, 5, 10, 20][cfg & 3];
+  return ms * (code === 0 ? 1 : code === 3 ? ((f[1] || 0) & 0x3f) : 2);
+}
+
+/* ---------- audio containers ---------- */
+function wavBlob(pcm16, rate) {
+  const n = pcm16.length, buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const s = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+  s(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); s(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  s(36, 'data'); dv.setUint32(40, n * 2, true);
+  new Int16Array(buf, 44, n).set(pcm16);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+/** Wrap raw Opus packets in an Ogg container (.opus) without re-encoding. */
+const OGG_CRC = (() => { const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) { let r = i << 24; for (let j = 0; j < 8; j++) r = (r & 0x80000000) ? ((r << 1) ^ 0x04C11DB7) : (r << 1); t[i] = r >>> 0; }
+  return t; })();
+function oggOpusBlob(frames, inputRate = 16000) {
+  const pages = []; let seqNo = 0; const serial = 0x4f4d4931;
+  function page(type, granule, packets) {
+    const lace = []; let total = 0;
+    for (const p of packets) { let l = p.length; while (l >= 255) { lace.push(255); l -= 255; } lace.push(l); total += p.length; }
+    const out = new Uint8Array(27 + lace.length + total), dv = new DataView(out.buffer);
+    out.set([0x4f, 0x67, 0x67, 0x53, 0, type]); dv.setBigUint64(6, BigInt(granule), true);
+    dv.setUint32(14, serial, true); dv.setUint32(18, seqNo++, true); out[26] = lace.length; out.set(lace, 27);
+    let o = 27 + lace.length; for (const p of packets) { out.set(p, o); o += p.length; }
+    let crc = 0; for (let i = 0; i < out.length; i++) crc = ((crc << 8) ^ OGG_CRC[((crc >>> 24) ^ out[i]) & 0xff]) >>> 0;
+    dv.setUint32(22, crc, true); pages.push(out);
+  }
+  const head = new Uint8Array(19), hv = new DataView(head.buffer);
+  head.set([...'OpusHead'].map(c => c.charCodeAt(0))); head[8] = 1; head[9] = 1;
+  hv.setUint16(10, 312, true); hv.setUint32(12, inputRate, true);
+  const vendor = [...'omi-browser'].map(c => c.charCodeAt(0));
+  const tags = new Uint8Array(8 + 4 + vendor.length + 4), tv = new DataView(tags.buffer);
+  tags.set([...'OpusTags'].map(c => c.charCodeAt(0))); tv.setUint32(8, vendor.length, true); tags.set(vendor, 12);
+  page(0x02, 0, [head]); page(0, 0, [tags]);
+  let granule = 312, batch = [], lacing = 0;
+  const flush = last => { if (batch.length || last) page(last ? 0x04 : 0, granule, batch); batch = []; lacing = 0; };
+  for (let i = 0; i < frames.length; i++) {
+    const f = frames[i], segs = Math.floor(f.length / 255) + 1;
+    if (lacing + segs > 250) flush(false);
+    batch.push(f); lacing += segs; granule += Math.round(opusMs(f) * 48);
+  }
+  flush(true);
+  return new Blob(pages, { type: 'audio/ogg' });
+}
+
+/** Decode Opus packets to 16-bit PCM using the browser's WebCodecs AudioDecoder. */
+async function decodeToPcm16(frames, onProgress) {
+  if (typeof AudioDecoder === 'undefined') throw new Error('This browser has no WebCodecs AudioDecoder; use the .opus download instead.');
+  const parts = []; let total = 0, rate = 16000, errors = 0, dec = null;
+  const make = () => {
+    const d = new AudioDecoder({
+      output: a => { rate = a.sampleRate; const f = new Float32Array(a.numberOfFrames);
+        a.copyTo(f, { planeIndex: 0, format: 'f32-planar' }); a.close(); parts.push(f); total += f.length; },
+      error: () => { errors++; },
+    });
+    d.configure({ codec: 'opus', sampleRate: 16000, numberOfChannels: 1 });
+    return d;
+  };
+  dec = make(); let ts = 0;
+  for (let i = 0; i < frames.length; i++) {
+    if (dec.state === 'closed') dec = make();
+    try { dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: ts, data: frames[i] })); } catch { errors++; dec = make(); }
+    ts += Math.round(opusMs(frames[i]) * 1000);
+    if (dec.decodeQueueSize > 256) await new Promise(r => dec.addEventListener('dequeue', r, { once: true }));
+    if (onProgress && i % 500 === 0) onProgress(i / frames.length);
+  }
+  if (dec.state !== 'closed') await dec.flush().catch(() => { errors++; });
+  const pcm = new Int16Array(total); let o = 0;
+  for (const p of parts) { for (let i = 0; i < p.length; i++) { const v = Math.max(-1, Math.min(1, p[i])); pcm[o++] = v < 0 ? v * 32768 : v * 32767; } }
+  return { pcm, rate, errors };
+}
+
+/* =====================================================================
+ * BLE link
+ * ===================================================================== */
+class OmiLink {
+  constructor() { this.listeners = new Set(); this.tx = null; this.device = null; }
+
+  async connect(acceptAll) {
+    const optionalServices = [UUID.audioSvc, UUID.storSvc, 'battery_service', 'device_information'];
+    const opts = acceptAll ? { acceptAllDevices: true, optionalServices }
+      : { filters: [{ namePrefix: 'Omi' }, { services: [UUID.audioSvc] }], optionalServices };
+    this.device = await navigator.bluetooth.requestDevice(opts);
+    this.device.addEventListener('gattserverdisconnected', () => {
+      log('Bluetooth disconnected', 'warn');
+      if (this.tx) this.tx.abort(new Error('Bluetooth disconnected'));
+      this.onDisconnect && this.onDisconnect();
+    });
+    log(`Connecting to ${this.device.name || 'device'}…`);
+    this.server = await this.device.gatt.connect();
+    let svc;
+    try { svc = await this.server.getPrimaryService(UUID.storSvc); }
+    catch { this.disconnect(); throw new Error('This device has no offline-storage service (needs Omi firmware with SD-card storage).'); }
+    this.cmd = await svc.getCharacteristic(UUID.storCmd);
+    this.status = await svc.getCharacteristic(UUID.storStat);
+    this.cmd.addEventListener('characteristicvaluechanged', e => {
+      const v = e.target.value, b = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+      for (const l of [...this.listeners]) l(b);
+    });
+    await this.cmd.startNotifications();
+  }
+
+  disconnect() { try { this.device && this.device.gatt.connected && this.device.gatt.disconnect(); } catch {} }
+  get connected() { return !!(this.device && this.device.gatt.connected); }
+
+  write(bytes) {
+    return this.cmd.writeValueWithResponse ? this.cmd.writeValueWithResponse(bytes) : this.cmd.writeValue(bytes);
+  }
+
+  /** Send a command and feed notifications to onMsg until it calls ok()/fail(). Idle timeout guards stalls. */
+  transact(cmd, onMsg, idleMs = 10000) {
+    return new Promise((resolve, reject) => {
+      if (this.tx) return reject(new Error('Another operation is still in progress'));
+      let timer;
+      const finish = (fn, v) => { clearTimeout(timer); this.listeners.delete(h); this.tx = null; fn(v); };
+      const arm = () => { clearTimeout(timer); timer = setTimeout(() => finish(reject, new Error('Timed out waiting for the device')), idleMs); };
+      const h = b => { arm(); try { onMsg(b, v => finish(resolve, v), e => finish(reject, e)); } catch (e) { finish(reject, e); } };
+      this.listeners.add(h); this.tx = { abort: e => finish(reject, e) }; arm();
+      this.write(cmd).catch(e => finish(reject, e));
+    });
+  }
+
+  info() {
+    return this.transact(Uint8Array.of(CMD.INFO), (b, ok, fail) => {
+      if (b[0] === NOTE.INFO) { const i = parseInfo(b); i ? ok(i) : fail(new Error('Malformed INFO reply')); }
+      else if (b[0] === NOTE.ACK && b[1] !== 0) fail(ackError(b[1]));
+    }, 15000);
+  }
+
+  async readStatus() {
+    const v = await this.status.readValue();
+    const dv = new DataView(v.buffer, v.byteOffset, v.byteLength);
+    return { usedBytes: dv.getUint32(0, true), unread: dv.getUint32(4, true), freeBytes: dv.getUint32(8, true), rtcValid: dv.getUint32(12, true) };
+  }
+
+  /** Read `count` records starting at `start`. Resolves {status, nextSeq, data(Uint8Array of whole records)}. */
+  async readChunk(start, count, onBytes) {
+    const cmd = new DataView(new ArrayBuffer(13));
+    cmd.setUint8(0, CMD.READ); cmd.setBigUint64(1, BigInt(start)); cmd.setUint32(9, count);
+    let buf = null, off = 0;
+    try {
+      return await this.transact(new Uint8Array(cmd.buffer), (b, ok, fail) => {
+        if (b[0] === NOTE.READ_BEGIN) {
+          const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+          buf = new Uint8Array(dv.getUint32(9) * REC_SIZE); off = 0;
+        } else if (b[0] === NOTE.DATA) {
+          if (!buf) return;                                   // stray data from an aborted transfer
+          if (off + b.length - 1 > buf.length) return fail(new Error('Device sent more data than announced'));
+          buf.set(b.subarray(1), off); off += b.length - 1; onBytes && onBytes(b.length - 1);
+        } else if (b[0] === NOTE.DONE) {
+          const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+          ok({ status: b[1], nextSeq: Number(dv.getBigUint64(2)), data: buf ? buf.subarray(0, off - (off % REC_SIZE)) : new Uint8Array(0) });
+        } else if (b[0] === NOTE.ACK && b[1] !== 0) fail(ackError(b[1]));
+      });
+    } catch (e) { this.write(Uint8Array.of(CMD.STOP)).catch(() => {}); throw e; }
+  }
+
+  cancel() { if (this.tx) { this.write(Uint8Array.of(CMD.STOP)).catch(() => {}); this.tx.abort(new CancelError()); } }
+
+  advance(info, seq) {
+    let cmd;
+    if ((info.caps & CAP_RING_ID) && info.ringId) {
+      const dv = new DataView(new ArrayBuffer(17)); dv.setUint8(0, CMD.ADVANCE_ID);
+      dv.setBigUint64(1, info.ringId); dv.setBigUint64(9, BigInt(seq)); cmd = new Uint8Array(dv.buffer);
+    } else {
+      const dv = new DataView(new ArrayBuffer(9)); dv.setUint8(0, CMD.ADVANCE); dv.setBigUint64(1, BigInt(seq)); cmd = new Uint8Array(dv.buffer);
+    }
+    return this.transact(cmd, (b, ok, fail) => {
+      if (b[0] === NOTE.ACK) b[1] === 0 ? ok() : fail(ackError(b[1]));
+    }, 15000);
+  }
+}
+
+/* =====================================================================
+ * Session state: everything downloaded so far (kept in memory only)
+ * ===================================================================== */
+const link = new OmiLink();
+let connCount = 0;
+let lastInfo = null, codecId = null;
+let sess = newSession(null);
+let busy = false;
+
+function newSession(key) {
+  // items: one per ring record {seq, ts, uptime, ms, payload}; chunks: raw bytes for the lossless dump
+  return { key, startSeq: null, next: null, items: [], chunks: [] };
+}
+
+function ingest(startSeq, data) {
+  const n = data.length / REC_SIZE;
+  for (let i = 0; i < n; i++) {
+    const rec = data.subarray(i * REC_SIZE, (i + 1) * REC_SIZE);
+    const raw = ((rec[0] << 24) | (rec[1] << 16) | (rec[2] << 8) | rec[3]) >>> 0;
+    const payload = rec.subarray(TS_BYTES);
+    let ms = 0; for (const f of parsePayload(payload)) ms += opusMs(f);
+    sess.items.push({ seq: startSeq + i, ts: raw & 0x7fffffff, uptime: !!(raw & UPTIME_FLAG), ms, payload });
+  }
+  sess.chunks.push(data);
+}
+
+/** Group consecutive records into recordings; a clock gap > gapSec (or a clock change) starts a new one. */
+function segment(items, gapSec) {
+  const segs = []; let cur = null;
+  for (const it of items) {
+    const noClock = it.uptime || it.ts < MIN_EPOCH;
+    if (!cur || cur.noClock !== noClock || it.ts - cur.lastTs > gapSec || it.ts < cur.lastTs - 2) {
+      cur = { start: it.ts, noClock, items: [], ms: 0, lastTs: it.ts }; segs.push(cur);
+    }
+    cur.items.push(it); cur.ms += it.ms; cur.lastTs = it.ts;
+  }
+  return segs;
+}
+const framesOf = seg => { const out = []; for (const it of seg.items) for (const f of parsePayload(it.payload)) out.push(f); return out; };
+function segTitle(seg) {
+  if (!seg.noClock) return new Date(seg.start * 1000).toLocaleString();
+  return `Unknown date (device clock not set, ${fmtDur(seg.start)} after boot)`;
+}
+function segFile(seg, ext) {
+  const d = seg.noClock ? null : new Date(seg.start * 1000);
+  const stamp = d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+    : `noclock_boot${seg.start}s_seq${seg.items[0].seq}`;
+  return `omi_${stamp}.${ext}`;
+}
+
+/* =====================================================================
+ * UI
+ * ===================================================================== */
+function save(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+function setBusy(b) { busy = b; refreshButtons(); }
+function refreshButtons() {
+  const c = link.connected, have = sess.items.length > 0;
+  $('btnConnect').classList.toggle('hidden', c); $('btnDisconnect').classList.toggle('hidden', !c);
+  $('btnInfo').disabled = !c || busy;
+  $('btnDownload').disabled = !c || busy || !lastInfo || lastInfo.writeSeq <= lastInfo.readSeq && !(have && sess.next < lastInfo.writeSeq);
+  $('btnCancel').classList.toggle('hidden', !busy);
+  $('btnReset').disabled = busy || !have;
+  $('btnSaveAll').disabled = busy || !have; $('btnRaw').disabled = busy || !have;
+  const complete = c && lastInfo && have && sess.startSeq === lastInfo.readSeq && sess.next >= lastInfo.writeSeq;
+  $('btnFree').disabled = busy || !complete || !$('chkSaved').checked;
+}
+
+function renderInfo() {
+  const i = lastInfo; if (!i) return;
+  $('infoGrid').hidden = false;
+  const unread = Math.max(0, i.writeSeq - i.readSeq), bytes = unread * REC_SIZE;
+  const rate = codecId === 21 ? 16000 : 8000;                 // encoded bytes/s used by Omi's own estimate
+  $('iUnread').textContent = unread.toLocaleString();
+  $('iSize').textContent = fmtBytes(bytes);
+  $('iEst').textContent = unread ? '≈ ' + fmtDur(unread * 440 / rate) : '0s';
+  $('iCap').textContent = i.capacity ? (100 * unread / i.capacity).toFixed(1) + '%' : '–';
+  $('iDrop').textContent = i.dropped.toLocaleString();
+  $('infoNote').textContent = unread ? '' : 'Nothing is waiting on the device.';
+  if (i.dropped > 0) $('infoNote').textContent = 'The card was full at some point and the oldest audio was overwritten.';
+  if (!(i.caps & CAP_APP_ACK_RECLAIM) && i.version === 0)
+    $('infoNote').textContent += ' Older firmware: it may discard audio as soon as it has been sent, so download once and save it right away.';
+}
+
+let renderTimer = null;
+function renderRecordings() {
+  clearTimeout(renderTimer); renderTimer = setTimeout(doRender, 300);
+}
+function doRender() {
+  const box = $('recs'), gap = Math.max(1, +$('gapSec').value || 30);
+  if (!sess.items.length) { box.innerHTML = '<p class="note">Nothing downloaded yet.</p>'; return; }
+  const segs = segment(sess.items, gap); window.__segs = segs;
+  const playing = new Set([...box.querySelectorAll('audio')].filter(a => !a.paused).map(a => a.closest('.rec').dataset.i));
+  if (playing.size) return;                                   // don't rebuild the list while something is playing
+  box.textContent = '';
+  segs.slice().reverse().forEach((seg, ri) => {
+    const i = segs.length - 1 - ri;
+    const el = document.createElement('div'); el.className = 'rec'; el.dataset.i = i;
+    el.innerHTML = `<div class="top"><span class="when"></span><span class="meta"></span></div><div class="row"></div>`;
+    el.querySelector('.when').textContent = segTitle(seg);
+    el.querySelector('.meta').textContent = `${fmtDur(seg.ms / 1000)} · ${seg.items.length.toLocaleString()} records`;
+    const row = el.querySelector('.row');
+    const mk = (label, fn) => { const b = document.createElement('button'); b.className = 'small'; b.textContent = label;
+      b.onclick = async () => { b.disabled = true; const t = b.textContent;
+        try { await fn(b); } catch (e) { log(e.message, 'err'); alert(e.message); } b.disabled = false; b.textContent = t; }; row.appendChild(b); };
+    mk('▶ Play', async () => {
+      const { pcm, rate, errors } = await decodeToPcm16(framesOf(seg));
+      if (errors) log(`${errors} frame(s) could not be decoded in ${segTitle(seg)}`, 'warn');
+      let au = el.querySelector('audio');
+      if (!au) { au = document.createElement('audio'); au.controls = true; el.appendChild(au); }
+      au.src = URL.createObjectURL(wavBlob(pcm, rate)); au.play().catch(() => {});
+    });
+    mk('Download WAV', async b => {
+      b.textContent = 'Decoding…'; const { pcm, rate } = await decodeToPcm16(framesOf(seg));
+      save(wavBlob(pcm, rate), segFile(seg, 'wav'));
+    });
+    mk('Download .opus', async () => save(oggOpusBlob(framesOf(seg)), segFile(seg, 'opus')));
+    box.appendChild(el);
+  });
+}
+
+function setProgress(done, total, extra) {
+  $('bar').style.width = total ? Math.min(100, 100 * done / total) + '%' : '0';
+  $('progText').textContent = extra || '';
+}
+
+async function refreshDeviceInfo() {
+  lastInfo = await link.info();
+  const k = lastInfo.ringId !== null ? String(lastInfo.ringId) : 'conn' + connCount;
+  if (sess.items.length && sess.key !== k) { log('Device storage was reset since the last download; discarding old session data', 'warn'); sess = newSession(k); renderRecordings(); }
+  try { const s = await link.readStatus(); $('iClock').textContent = s.rtcValid ? 'Set ✓' : 'Not set ✗'; } catch { $('iClock').textContent = '–'; }
+  renderInfo(); refreshButtons();
+}
+
+async function onConnect() {
+  try {
+    connCount++;
+    await link.connect($('chkAll').checked);
+    $('connPill').textContent = 'Connected'; $('connPill').className = 'pill ok';
+    $('devGrid').hidden = false; $('sName').textContent = link.device.name || 'Omi';
+    log('Connected to ' + (link.device.name || 'device'));
+    // Optional extras: never fatal
+    try { const bs = await link.server.getPrimaryService('battery_service'); const c = await bs.getCharacteristic('battery_level');
+      $('sBat').textContent = (await c.readValue()).getUint8(0) + '%'; } catch { $('sBat').textContent = '–'; }
+    try { const ds = await link.server.getPrimaryService('device_information'); const c = await ds.getCharacteristic('firmware_revision_string');
+      $('sFw').textContent = new TextDecoder().decode(await c.readValue()); } catch { $('sFw').textContent = '–'; }
+    try { const as = await link.server.getPrimaryService(UUID.audioSvc); const c = await as.getCharacteristic(UUID.codec);
+      codecId = (await c.readValue()).getUint8(0);
+      $('sCodec').textContent = { 20: 'Opus (10 ms)', 21: 'Opus (20 ms)', 1: 'PCM 8k', 0: 'PCM 16k', 10: 'µ-law 16k', 11: 'µ-law 8k' }[codecId] || 'id ' + codecId;
+    } catch { $('sCodec').textContent = '–'; }
+    refreshButtons();
+    await refreshDeviceInfo();
+  } catch (e) {
+    if (e.name === 'NotFoundError') { log('Device selection cancelled'); }
+    else { log(e.message, 'err'); alert(e.message); }
+    $('connPill').textContent = link.connected ? 'Connected' : 'Not connected'; refreshButtons();
+  }
+}
+
+async function onDownload() {
+  if (busy) return; setBusy(true);
+  const t0 = performance.now(); let bytesTotal = 0;
+  try {
+    const info = lastInfo = await link.info(); renderInfo();
+    const key = info.ringId !== null ? String(info.ringId) : 'conn' + connCount;
+    let start;
+    if (sess.items.length && sess.key === key && sess.next >= info.readSeq && sess.next <= info.writeSeq) {
+      start = sess.next; log(`Resuming from record ${start}`);
+    } else { sess = newSession(key); start = info.readSeq; sess.startSeq = start; sess.next = start; renderRecordings(); }
+    const end = info.writeSeq, total = end - start;
+    log(`Downloading records ${start}…${end} (${total.toLocaleString()} records, ${fmtBytes(total * REC_SIZE)})`);
+    let lastUi = 0;
+    while (start < end) {
+      const want = Math.min(CHUNK_RECORDS, end - start), base = start - sess.startSeq;
+      let got = 0;
+      const res = await link.readChunk(start, want, n => {
+        got += n; const now = performance.now();
+        if (now - lastUi > 120) { lastUi = now;
+          const done = base + got / REC_SIZE, el = (now - t0) / 1000, sp = (bytesTotal + got) / el;
+          setProgress(done, end - sess.startSeq, `${Math.floor(done).toLocaleString()} / ${(end - sess.startSeq).toLocaleString()} records · ${fmtBytes(sp)}/s`); }
+      });
+      bytesTotal += res.data.length;
+      const n = res.data.length / REC_SIZE;
+      if (n > 0) { ingest(start, res.data); start += n; sess.next = start; renderRecordings(); }
+      if (res.status !== 0) { log(`Transfer ended early (status ${res.status}); you can resume`, 'warn'); break; }
+      if (n === 0) { log('Device returned no data; stopping', 'warn'); break; }
+    }
+    const secs = (performance.now() - t0) / 1000;
+    setProgress(start - sess.startSeq, end - sess.startSeq,
+      start >= end ? `Done: ${(end - sess.startSeq).toLocaleString()} records in ${secs.toFixed(1)}s (${fmtBytes(bytesTotal / Math.max(secs, .001))}/s). Nothing was erased from the Omi.`
+                   : `Stopped at record ${start.toLocaleString()} of ${end.toLocaleString()}. Press Download to resume.`);
+    log(start >= end ? 'Download complete' : 'Download incomplete', start >= end ? '' : 'warn');
+  } catch (e) {
+    if (e.cancelled) { log('Cancelled', 'warn'); setProgress(sess.next - sess.startSeq, (lastInfo.writeSeq - sess.startSeq), 'Cancelled. Press Download to resume.'); }
+    else { log(e.message, 'err'); $('progText').textContent = 'Error: ' + e.message + ' (press Download to resume)'; }
+  } finally { setBusy(false); renderRecordings(); }
+}
+
+async function saveAllWav() {
+  const segs = segment(sess.items, Math.max(1, +$('gapSec').value || 30));
+  let dir = null;
+  if (window.showDirectoryPicker) { try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch { return; } }
+  setBusy(true);
+  try {
+    for (let i = 0; i < segs.length; i++) {
+      $('progText').textContent = `Saving ${i + 1} / ${segs.length}…`;
+      const { pcm, rate } = await decodeToPcm16(framesOf(segs[i]));
+      const blob = wavBlob(pcm, rate), name = segFile(segs[i], 'wav');
+      if (dir) { const fh = await dir.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(blob); await w.close(); }
+      else { save(blob, name); await sleep(300); }
+    }
+    $('progText').textContent = `Saved ${segs.length} recording(s).`;
+  } catch (e) { log(e.message, 'err'); alert(e.message); } finally { setBusy(false); }
+}
+
+async function freeSpace() {
+  if (!confirm(`Permanently free ${(sess.next - sess.startSeq).toLocaleString()} downloaded records on the Omi?\n\nThey will be removed from the device and the Omi phone app will not be able to sync them.`)) return;
+  setBusy(true);
+  try {
+    const info = await link.info();
+    if (sess.startSeq !== info.readSeq) throw new Error('Device state changed since the download; refresh and download again first.');
+    await link.advance(info, sess.next);
+    log(`Freed records up to ${sess.next}`); sess = newSession(null); $('chkSaved').checked = false;
+    $('progText').textContent = 'Device storage freed.';
+    await refreshDeviceInfo(); renderRecordings();
+  } catch (e) { log(e.message, 'err'); alert(e.message); } finally { setBusy(false); }
+}
+
+/* ---------- wiring ---------- */
+$('btnConnect').onclick = onConnect;
+$('btnDisconnect').onclick = () => link.disconnect();
+$('btnInfo').onclick = async () => { setBusy(true); try { await refreshDeviceInfo(); } catch (e) { log(e.message, 'err'); } finally { setBusy(false); } };
+$('btnDownload').onclick = onDownload;
+$('btnCancel').onclick = () => link.cancel();
+$('btnReset').onclick = () => { if (confirm('Discard the audio downloaded into this page? (It is still on the Omi.)')) { sess = newSession(sess.key); setProgress(0, 0, ''); renderRecordings(); refreshButtons(); } };
+$('btnSaveAll').onclick = saveAllWav;
+$('btnRaw').onclick = () => save(new Blob(sess.chunks, { type: 'application/octet-stream' }), `omi_raw_records_${sess.startSeq}-${sess.next}.bin`);
+$('btnFree').onclick = freeSpace;
+$('chkSaved').onchange = refreshButtons;
+$('gapSec').onchange = renderRecordings;
+link.onDisconnect = () => { $('connPill').textContent = 'Not connected'; $('connPill').className = 'pill bad'; lastInfo = null; setBusy(false); };
+window.addEventListener('beforeunload', e => { if (sess.items.length) { e.preventDefault(); e.returnValue = ''; } });
+
+if (!window.isSecureContext || !navigator.bluetooth) {
+  const b = $('unsupported'); b.style.display = 'block';
+  b.textContent = !window.isSecureContext
+    ? 'Web Bluetooth needs a secure context. Open this page via https:// or http://localhost (e.g. run "python3 -m http.server" in this folder).'
+    : 'This browser has no Web Bluetooth. Use Chrome, Edge or Opera on desktop or Android (not Safari/Firefox, not iOS).';
+  $('btnConnect').disabled = true;
+}
+refreshButtons();
+</script>
+</body>
+</html>
