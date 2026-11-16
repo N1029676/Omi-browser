@@ -112,7 +112,18 @@
   </section>
 
   <section>
-    <h2>4 · Recordings</h2>
+    <h2>4 · Live capture</h2>
+    <div class="row">
+      <button class="primary" id="btnLive" disabled>● Start live capture</button>
+      <label class="note"><input type="checkbox" id="chkListen" checked> Listen while recording</label>
+      <span class="pill" id="livePill">Idle</span>
+    </div>
+    <div class="bar"><i id="liveBar"></i></div>
+    <div class="note" id="liveStats">Streams audio from the Omi in real time and saves it as a recording below (no need to download anything afterwards). Uses the live audio stream, so the Omi phone app must not be connected.</div>
+  </section>
+
+  <section>
+    <h2>5 · Recordings</h2>
     <div class="row" style="justify-content:space-between">
       <label class="gap note">Start a new recording after a silence of
         <input type="number" id="gapSec" min="1" max="3600" value="30"> s</label>
@@ -126,7 +137,7 @@
   </section>
 
   <section>
-    <h2>5 · Free device storage (optional)</h2>
+    <h2>6 · Free device storage (optional)</h2>
     <p class="note" style="margin-top:0">Once everything is downloaded, you can tell the Omi it may reuse the space taken by that audio. <b>This removes the audio from the device</b>: the Omi phone app can no longer sync it and the firmware will overwrite it. Your copy in this browser then becomes the only one. Available only after a complete download that was saved to browser storage.</p>
     <div class="row">
       <label class="note"><input type="checkbox" id="chkSaved"> I have saved my recordings as files</label>
@@ -160,6 +171,7 @@
  * ===================================================================== */
 const UUID = {
   audioSvc: '19b10000-e8f2-537e-4f6c-d104768a1214',
+  audioData:'19b10001-e8f2-537e-4f6c-d104768a1214',
   codec:    '19b10002-e8f2-537e-4f6c-d104768a1214',
   storSvc:  '30295780-4301-eabd-2904-2849adfeae43',
   storCmd:  '30295781-4301-eabd-2904-2849adfeae43',
@@ -387,6 +399,16 @@ class OmiLink {
     } catch (e) { this.write(Uint8Array.of(CMD.STOP)).catch(() => {}); throw e; }
   }
 
+  /** Subscribe to the live audio characteristic (this is what makes the Omi start streaming). Returns a stop function. */
+  async startLive(onPacket) {
+    const svc = await this.server.getPrimaryService(UUID.audioSvc);
+    const ch = await svc.getCharacteristic(UUID.audioData);
+    const h = e => { const v = e.target.value; onPacket(new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength))); };
+    ch.addEventListener('characteristicvaluechanged', h);
+    await ch.startNotifications();
+    return async () => { ch.removeEventListener('characteristicvaluechanged', h); try { await ch.stopNotifications(); } catch {} };
+  }
+
   cancel() { if (this.tx) { this.write(Uint8Array.of(CMD.STOP)).catch(() => {}); this.tx.abort(new CancelError()); } }
 
   advance(info, seq) {
@@ -491,9 +513,9 @@ function segment(items, gapSec) {
 /** All recordings across rings: dated ones newest first, undated (device clock unset) last. */
 function allSegments() {
   const gap = Math.max(1, +$('gapSec').value || 30), out = [];
-  for (const R of rings.values()) {
+  for (const [k, R] of rings) {
     R.items.sort((a, b) => a.seq - b.seq);
-    out.push(...segment(R.items, gap));
+    for (const sg of segment(R.items, gap)) { sg.ring = k; out.push(sg); }
   }
   return out.sort((a, b) => (a.noClock - b.noClock) || (b.start - a.start));
 }
@@ -523,13 +545,15 @@ function refreshButtons() {
   const R = lastInfo && rings.get(keyFor(lastInfo)), m = R && R.meta;
   const resumeAt = m && m.next >= lastInfo.readSeq && m.next <= lastInfo.writeSeq ? m.next : (lastInfo ? lastInfo.readSeq : 0);
   $('btnConnect').classList.toggle('hidden', c); $('btnDisconnect').classList.toggle('hidden', !c);
-  $('btnInfo').disabled = !c || busy;
-  $('btnDownload').disabled = !c || busy || !lastInfo || resumeAt >= lastInfo.writeSeq;
+  const lv = live.on;
+  $('btnInfo').disabled = !c || busy || lv;
+  $('btnLive').disabled = !c || (busy && !lv); $('btnLive').textContent = lv ? '■ Stop' : '● Start live capture'; $('btnLive').classList.toggle('danger', lv);
+  $('btnDownload').disabled = !c || busy || lv || !lastInfo || resumeAt >= lastInfo.writeSeq;
   $('btnCancel').classList.toggle('hidden', !busy);
-  $('btnReset').disabled = busy || !have;
+  $('btnReset').disabled = busy || lv || !have;
   $('btnSaveAll').disabled = busy || !have; $('btnRaw').disabled = busy || !have;
   const complete = c && lastInfo && m && m.startSeq <= lastInfo.readSeq && m.next >= lastInfo.writeSeq && lastInfo.writeSeq > lastInfo.readSeq && !persistFailed;
-  $('btnFree').disabled = busy || !complete || !$('chkSaved').checked;
+  $('btnFree').disabled = busy || lv || !complete || !$('chkSaved').checked;
 }
 
 function renderInfo() {
@@ -561,7 +585,7 @@ function doRender() {
   segs.forEach(seg => {
     const el = document.createElement('div'); el.className = 'rec';
     el.innerHTML = `<div class="top"><span class="when"></span><span class="meta"></span></div><div class="row"></div>`;
-    el.querySelector('.when').textContent = segTitle(seg);
+    el.querySelector('.when').textContent = segTitle(seg) + (seg.ring.startsWith('live-') ? '  · live capture' : '');
     el.querySelector('.meta').textContent = `${fmtDur(seg.ms / 1000)} · ${seg.items.length.toLocaleString()} records`;
     const row = el.querySelector('.row');
     const mk = (label, fn) => { const b = document.createElement('button'); b.className = 'small'; b.textContent = label;
@@ -695,6 +719,113 @@ async function freeSpace() {
   } catch (e) { log(e.message, 'err'); alert(e.message); } finally { setBusy(false); }
 }
 
+/* =====================================================================
+ * Live capture: subscribe to the audio characteristic, rebuild Opus frames from fragments,
+ * play them, and store them in the library using the same 444-byte record layout.
+ * Packet: [packet# u16 LE][fragment# u8][bytes]; a frame starts at fragment 0.
+ * ===================================================================== */
+const live = { on: false };
+const LIVE_FLUSH_RECORDS = 100;                 // ~5 s of audio per IndexedDB write
+
+async function startLive() {
+  if (live.on || busy) return;
+  if (codecId !== null && codecId !== 20 && codecId !== 21) { alert(`Live capture supports the Opus codecs only (this Omi reports codec ${codecId}).`); return; }
+  const startMs = Date.now(), key = 'live-' + startMs.toString(36), R = ringOf(key);
+  R.meta = { ring: key, startSeq: 0, next: 0 };
+  Object.assign(live, { on: true, key, R, startMs, frames: 0, lost: 0, ms: 0, tsUs: 0, pending: null, lastId: -1, lastIdx: -1,
+    buf: new Uint8Array(440), off: 0, recTs: 0, recs: [], seq: 0, ctx: null, gain: null, nextTime: 0, dec: null, level: 0, saveP: Promise.resolve(), stop: null, timer: null });
+  try { live.ctx = new AudioContext(); live.gain = live.ctx.createGain(); live.gain.gain.value = $('chkListen').checked ? 1 : 0; live.gain.connect(live.ctx.destination); live.ctx.resume(); } catch { live.ctx = null; }
+  if (typeof AudioDecoder !== 'undefined') {
+    live.dec = new AudioDecoder({ output: liveOutput, error: () => {} });
+    live.dec.configure({ codec: 'opus', sampleRate: 16000, numberOfChannels: 1 });
+  } else log('No WebCodecs: recording works but live playback/meter are unavailable', 'warn');
+  try { live.stop = await link.startLive(liveOnPacket); }
+  catch (e) { log(e.message, 'err'); alert(e.message); await endLive(); return; }
+  live.timer = setInterval(updateLiveUi, 200);
+  log('Live capture started'); refreshButtons(); updateLiveUi();
+}
+
+function liveOutput(a) {
+  const n = a.numberOfFrames, f = new Float32Array(n); a.copyTo(f, { planeIndex: 0, format: 'f32-planar' }); const rate = a.sampleRate; a.close();
+  let sum = 0; for (let i = 0; i < n; i++) sum += f[i] * f[i];
+  live.level = Math.max(Math.sqrt(sum / n), live.level * 0.9);
+  if (!live.ctx || live.ctx.state === 'closed') return;
+  const b = live.ctx.createBuffer(1, n, rate); b.copyToChannel(f, 0);
+  const src = live.ctx.createBufferSource(); src.buffer = b; src.connect(live.gain);
+  const t = Math.max(live.ctx.currentTime + 0.15, live.nextTime);       // small jitter buffer; resets after an underrun
+  src.start(t); live.nextTime = t + b.duration;
+}
+
+function liveOnPacket(b) {
+  if (!live.on || b.length < 4) return;
+  const id = b[0] | (b[1] << 8), idx = b[2], gap = live.lastId >= 0 && id !== ((live.lastId + 1) & 0xffff);
+  live.lastId = id;
+  if (idx === 0) {                                                     // start of a new frame: the previous one is complete
+    if (live.pending) { if (gap) live.lost++; else liveFrame(live.pending); }
+    live.pending = [b.subarray(3)]; live.lastIdx = 0;
+    return;
+  }
+  if (!live.pending) return;                                           // waiting for the next frame start
+  if (gap || idx !== live.lastIdx + 1) { live.pending = null; live.lost++; return; }   // lost fragment: drop this frame
+  live.pending.push(b.subarray(3)); live.lastIdx = idx;
+}
+
+function liveFrame(parts) {
+  let len = 0; for (const p of parts) len += p.length;
+  const f = new Uint8Array(len); let o = 0; for (const p of parts) { f.set(p, o); o += p.length; }
+  const ms = len >= 1 && len <= 255 ? opusMs(f) : 0;
+  if (!ms) { live.lost++; return; }
+  live.frames++; live.ms += ms;
+  if (live.dec && live.dec.state !== 'closed') {
+    try { live.dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: live.tsUs, data: f })); } catch {}
+  }
+  live.tsUs += Math.round(ms * 1000);
+  if (live.off + 1 + len > 439) liveEmitRecord();
+  if (live.off === 0) live.recTs = Math.floor(Date.now() / 1000);
+  live.buf[live.off] = len; live.buf.set(f, live.off + 1); live.off += 1 + len;
+}
+
+function liveEmitRecord() {
+  if (!live.off) return;
+  const r = new Uint8Array(REC_SIZE); new DataView(r.buffer).setUint32(0, live.recTs);
+  r.set(live.buf.subarray(0, live.off), TS_BYTES); live.recs.push(r);
+  live.buf = new Uint8Array(440); live.off = 0;
+  if (live.recs.length >= LIVE_FLUSH_RECORDS) liveFlush();
+}
+
+function liveFlush() {
+  if (!live.recs.length) return live.saveP;
+  const recs = live.recs; live.recs = [];
+  const data = new Uint8Array(recs.length * REC_SIZE); recs.forEach((r, i) => data.set(r, i * REC_SIZE));
+  const start = live.seq; live.seq += recs.length;
+  const R = live.R; ingest(R, start, data); R.meta.next = live.seq;
+  const meta = { ...R.meta };
+  live.saveP = live.saveP.then(() => DB.saveChunk(meta, start, data)).catch(e => {
+    if (!persistFailed) log('Could not save live audio to browser storage: ' + e.message, 'warn'); persistFailed = true; });
+  renderRecordings(); updateStoreInfo();
+  return live.saveP;
+}
+
+async function endLive() {
+  if (!live.on) return;
+  live.on = false; clearInterval(live.timer);
+  try { if (live.stop) await live.stop(); } catch {}
+  live.pending = null;                                                 // a half-received last frame is dropped
+  liveEmitRecord(); await liveFlush();
+  if (live.dec && live.dec.state !== 'closed') { try { await live.dec.flush(); } catch {} }
+  const ctx = live.ctx; if (ctx) setTimeout(() => ctx.close().catch(() => {}), 1500);
+  if (live.seq === 0) rings.delete(live.key);                          // nothing was captured
+  log(`Live capture stopped: ${fmtDur(live.ms / 1000)} saved, ${live.lost} frame(s) lost`);
+  updateLiveUi(true); refreshButtons(); renderRecordings();
+}
+
+function updateLiveUi(final) {
+  $('livePill').textContent = live.on ? '● Recording' : 'Idle'; $('livePill').className = 'pill' + (live.on ? ' bad' : '');
+  if (!live.frames && !live.on) return;
+  $('liveStats').textContent = `${fmtDur(live.ms / 1000)} captured · ${live.frames.toLocaleString()} frames · ${live.lost} lost` + (live.on ? '' : ' · saved to Recordings below');
+  live.level *= 0.85; $('liveBar').style.width = live.on ? Math.min(100, live.level * 400) + '%' : '0';
+}
+
 /* ---------- wiring ---------- */
 $('btnConnect').onclick = onConnect;
 $('btnDisconnect').onclick = () => link.disconnect();
@@ -710,9 +841,11 @@ $('btnRaw').onclick = () => { for (const [k, R] of rings) { if (!R.chunks.length
   const seqs = R.chunks.map(c => c.seq); save(new Blob(R.chunks.slice().sort((a, b) => a.seq - b.seq).map(c => c.data), { type: 'application/octet-stream' }),
     `omi_raw_records_${k.slice(-6)}_${Math.min(...seqs)}-${R.meta ? R.meta.next : ''}.bin`); } };
 $('btnFree').onclick = freeSpace;
+$('btnLive').onclick = () => live.on ? endLive() : startLive();
+$('chkListen').onchange = () => { if (live.gain) live.gain.gain.value = $('chkListen').checked ? 1 : 0; };
 $('chkSaved').onchange = refreshButtons;
 $('gapSec').onchange = renderRecordings;
-link.onDisconnect = () => { $('connPill').textContent = 'Not connected'; $('connPill').className = 'pill bad'; lastInfo = null; setBusy(false); };
+link.onDisconnect = () => { if (live.on) endLive(); $('connPill').textContent = 'Not connected'; $('connPill').className = 'pill bad'; lastInfo = null; setBusy(false); };
 
 
 if (!window.isSecureContext || !navigator.bluetooth) {

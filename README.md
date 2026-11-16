@@ -17,12 +17,15 @@ Everything happens locally in your browser.
    download a **WAV** (decoded in-browser with WebCodecs), or download **.opus** (the device's Opus
    frames wrapped in Ogg, no re-encoding). **Save raw dump** writes the untouched 444-byte ring records.
 
-Downloading is **non-destructive**: the Omi keeps the audio until you press *Free space on Omi* (section 5).
+Downloading is **non-destructive**: the Omi keeps the audio until you press *Free space on Omi* (section 6).
 That marks the downloaded audio as reusable: the firmware may overwrite it and it can no longer be read over
 Bluetooth (so the Omi phone app can't sync it either). It's only enabled after a complete download that was
 saved to browser storage.
 
-Downloads are saved in the browser's IndexedDB as they arrive, each chunk flushed to disk before the next is
+**Live capture** (section 4) subscribes to the Omi's live audio stream, plays it as it arrives (optional) and saves it
+as a recording in the same library. Use it with the phone app closed; it can't run at the same time as a storage download.
+
+Downloads and live recordings are saved in the browser's IndexedDB as they arrive, each chunk flushed to disk before the next is
 requested. Recordings survive reloads, and an interrupted download resumes where it stopped. Browser storage can
 be cleared by the user or the browser, so export WAV/.opus files for anything you want to keep.
 
@@ -40,6 +43,7 @@ implemented in the firmware (`omi/firmware/omi/src/lib/core/storage.c`, `sd_card
 | Notifications | `0x01` ACK[status] · `0x02` INFO(41 B) · `0x03` DATA · `0x04` DONE[status][next_seq] · `0x05` READ_BEGIN[seq][count] |
 | Ring record (444 B) | `[timestamp u32 BE][440 B payload]`; payload is `[len u8][Opus frame]…` zero-padded |
 | Timestamp | epoch seconds; bit 31 set = seconds since boot (device clock not set) |
+| Live audio characteristic | `19B10001-…` (notify): subscribing starts the stream. Packet = `[packet# u16 LE][fragment# u8][bytes]`; an Opus frame starts at fragment 0 and may span several packets. A missing packet drops that frame. |
 | Audio | Opus, 16 kHz mono (codec char `19B10002-…`: 20 = 10 ms frames, 21 = 20 ms frames) |
 
 DATA notifications are not aligned to record boundaries, so the app reassembles on the 444-byte stride.
