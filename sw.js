@@ -4,7 +4,7 @@
 // the cached copy when offline. version.json is never cached: the in-page update check must see the server.
 
 // yymmddhhmm (UTC) of the commit; stamped by tools/stamp-version.sh together with index.html. Do not edit by hand.
-const VERSION = '2611160943';
+const VERSION = '2611160948';
 const CACHE = 'omi-shell-' + VERSION;
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
 const NETWORK_WAIT_MS = 6000;   // if the network hangs, use the cached copy rather than waiting forever

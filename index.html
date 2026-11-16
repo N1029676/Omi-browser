@@ -213,7 +213,7 @@
   </section>
 
   <section>
-    <details>
+    <details id="logBox">
       <summary>Activity log</summary>
       <pre id="log"></pre>
     </details>
@@ -227,7 +227,7 @@
 'use strict';
 
 // yymmddhhmm (UTC) of the commit this file was committed in. Stamped by tools/stamp-version.sh; do not edit by hand.
-const VERSION = '2611160943';
+const VERSION = '2611160948';
 
 /* =====================================================================
  * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
@@ -396,7 +396,7 @@ async function decodeToPcm16(frames, onProgress) {
  * BLE link
  * ===================================================================== */
 class OmiLink {
-  constructor() { this.listeners = new Set(); this.tx = null; this.device = null; this._q = Promise.resolve(); this._bound = new WeakSet(); this.userDisc = false; }
+  constructor() { this.listeners = new Set(); this.tx = null; this.device = null; this._q = Promise.resolve(); this._bound = new WeakSet(); this._wired = new WeakSet(); this.userDisc = false; this.opening = false; this._cancelled = false; this._abort = null; }
 
   /** Web Bluetooth allows one GATT operation at a time: queue every one-shot operation. */
   serial(fn) { const run = () => fn(); const p = this._q.then(run, run); this._q = p.catch(() => {}); return p; }
@@ -408,35 +408,76 @@ class OmiLink {
       : { filters: [{ namePrefix: 'Omi' }, { services: [UUID.audioSvc] }], optionalServices });
   }
 
-  /** Connect to a chosen (or remembered) device and set up the storage channel. */
-  async open(device, timeoutMs = 15000) {
-    this.device = device; this.settingsSvc = null; this.userDisc = false; this._q = Promise.resolve();
+  /** Run one step with a timeout; cancelOpen() rejects it immediately. */
+  _guard(p, ms, label) {
+    return new Promise((resolve, reject) => {
+      const done = (fn, v) => { clearTimeout(t); this._abort = null; fn(v); };
+      const t = setTimeout(() => done(reject, Object.assign(new Error(`${label} timed out after ${Math.round(ms / 1000)} s`), { timeout: true })), ms);
+      this._abort = e => done(reject, e);
+      Promise.resolve(p).then(v => done(resolve, v), e => done(reject, e));
+    });
+  }
+
+  /** Abort a connection attempt in progress (the Cancel button). */
+  cancelOpen() {
+    this._cancelled = true; if (this._abort) this._abort(new CancelError());
+    try { this.device && this.device.gatt.disconnect(); } catch {}
+  }
+
+  /**
+   * Connect to a chosen (or remembered) device and set up the storage channel.
+   * Each step is timed and logged, so a stall shows exactly where; stalled attempts are retried.
+   */
+  async open(device, { onPhase = () => {}, attempts = 3 } = {}) {
+    this.device = device; this.settingsSvc = null; this.userDisc = false; this._cancelled = false; this.opening = true; this._q = Promise.resolve();
     if (!this._bound.has(device)) {
       this._bound.add(device);
       device.addEventListener('gattserverdisconnected', () => {
-        if (device !== this.device) return;
+        if (device !== this.device || this.opening) return;           // connection attempts handle their own failures
         const user = this.userDisc; this.userDisc = false;
         log(user ? 'Disconnected' : 'Bluetooth connection lost', user ? '' : 'warn');
         if (this.tx) this.tx.abort(new Error('Bluetooth disconnected'));
         this.onDisconnect && this.onDisconnect(user);
       });
     }
-    log(`Connecting to ${device.name || 'device'}…`);
-    let timer;
-    const timeout = new Promise((_, rej) => { timer = setTimeout(() => {
-      try { device.gatt.disconnect(); } catch {}
-      rej(new Error('Timed out connecting (is the Omi on and in range?)')); }, timeoutMs); });
-    try { this.server = await Promise.race([device.gatt.connect(), timeout]); } finally { clearTimeout(timer); }
-    let svc;
-    try { svc = await this.server.getPrimaryService(UUID.storSvc); }
-    catch { this.disconnect(); const e = new Error('This device has no offline-storage service (needs Omi firmware with SD-card storage).'); e.fatal = true; throw e; }
-    this.cmd = await svc.getCharacteristic(UUID.storCmd);
-    this.status = await svc.getCharacteristic(UUID.storStat);
-    this.cmd.addEventListener('characteristicvaluechanged', e => {
-      const v = e.target.value, b = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
-      for (const l of [...this.listeners]) l(b);
-    });
-    await this.cmd.startNotifications();
+    try {
+      for (let i = 1; ; i++) {
+        try { await this._openOnce(device, onPhase, i, attempts); return; }
+        catch (e) {
+          try { device.gatt.disconnect(); } catch {}
+          if (e.cancelled || this._cancelled) throw new CancelError();
+          if (e.fatal || i >= attempts) throw e;
+          log(`${e.message}. Retrying (${i + 1}/${attempts})…`, 'warn'); await sleep(1200);
+        }
+      }
+    } finally { this.opening = false; }
+  }
+
+  async _openOnce(device, onPhase, n, total) {
+    const T = OmiLink.TIMEOUTS, t0 = performance.now();
+    const step = async (label, ms, fn) => {
+      if (this._cancelled) throw new CancelError();
+      onPhase(label); const t1 = performance.now();
+      const r = await this._guard(fn(), ms, label);
+      log(`${label}: ok (${((performance.now() - t1) / 1000).toFixed(1)} s)`); return r;
+    };
+    log(`Connecting to ${device.name || 'device'}…` + (n > 1 ? ` (attempt ${n}/${total})` : ''));
+    this.server = await step('Bluetooth link', T.link, () => device.gatt.connect());
+    const svc = await step('Finding storage service', T.service, () => this.server.getPrimaryService(UUID.storSvc).catch(e => {
+      if (e.name === 'NotFoundError') { const x = new Error('This device has no offline-storage service (needs Omi firmware with SD-card storage).'); x.fatal = true; throw x; }
+      if (e.name === 'SecurityError') { const x = new Error('The browser has no permission for the storage service. Use Details → Forget this device, then connect again.'); x.fatal = true; throw x; }
+      throw e; }));
+    this.cmd = await step('Opening storage channel', T.channel, () => svc.getCharacteristic(UUID.storCmd));
+    this.status = await step('Opening status channel', T.channel, () => svc.getCharacteristic(UUID.storStat));
+    if (!this._wired.has(this.cmd)) {
+      this._wired.add(this.cmd);
+      this.cmd.addEventListener('characteristicvaluechanged', e => {
+        const v = e.target.value, b = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+        for (const l of [...this.listeners]) l(b);
+      });
+    }
+    await step('Enabling notifications', T.notify, () => this.cmd.startNotifications());
+    log(`Connected in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   }
 
   disconnect() { this.userDisc = true; try { this.device && this.device.gatt.connected && this.device.gatt.disconnect(); } catch {} }
@@ -535,6 +576,8 @@ class OmiLink {
     }, 15000);
   }
 }
+
+OmiLink.TIMEOUTS = { link: 25000, service: 40000, channel: 15000, notify: 15000 };   // ms per connection step
 
 /* =====================================================================
  * Library: everything downloaded, grouped by "ring" (one device-storage incarnation),
@@ -737,7 +780,7 @@ const savedDev = {
   set(d) { try { localStorage.setItem('omi.device', JSON.stringify({ id: d.id, name: d.name || 'Omi' })); } catch {} },
   clear() { try { localStorage.removeItem('omi.device'); } catch {} },
 };
-let connecting = false, rememberedDevice = null, waitCtl = null, connState = 'disconnected', bodyOpen = false;
+let connecting = false, rememberedDevice = null, waitCtl = null, connState = 'disconnected', bodyOpen = false, connPhase = '';
 const devInfo = { name: '', bat: null, fw: '', codec: '', charging: false };
 const canRemember = () => !!(navigator.bluetooth && navigator.bluetooth.getDevices);
 const CODEC_NAMES = { 20: 'Opus (10 ms)', 21: 'Opus (20 ms)', 1: 'PCM 8k', 0: 'PCM 16k', 10: 'µ-law 16k', 11: 'µ-law 8k' };
@@ -749,7 +792,7 @@ function renderConn(state) {
   const nm = (rd && rd.name) || (savedDev.get() || {}).name || 'Omi';
   let sum;
   if (c) sum = [devInfo.name || nm, devInfo.bat != null ? devInfo.bat + '%' + (devInfo.charging ? ' ⚡' : '') : null, devInfo.fw && 'fw ' + devInfo.fw, devInfo.codec].filter(Boolean).join(' · ');
-  else if (st === 'connecting') sum = `Connecting to ${nm}…`;
+  else if (st === 'connecting') sum = `Connecting to ${nm}…` + (connPhase ? ` ${connPhase.toLowerCase()}` : '');
   else if (st === 'waiting') sum = `Waiting for ${nm} to come into range…`;
   else sum = rd ? `Last device: ${nm}` : 'Connect your Omi to get started';
   $('connSummary').textContent = sum;
@@ -758,7 +801,8 @@ function renderConn(state) {
   pill.className = 'pill ' + (c ? 'ok' : st === 'disconnected' ? 'bad' : 'warn');
   $('btnConnect').hidden = c || !!rd;
   $('btnReconnect').hidden = c || !rd; $('btnReconnect').textContent = `Reconnect to ${nm}`;
-  $('btnPick').hidden = c || !rd; $('btnDisconnect').hidden = !c; $('btnConnToggle').hidden = !c;
+  $('btnPick').hidden = c || !rd; $('btnDisconnect').hidden = !(c || st === 'connecting'); $('btnDisconnect').textContent = c ? 'Disconnect' : 'Cancel';
+  $('btnConnToggle').hidden = !c; if (st === 'connecting') $('logBox').open = true;   // show progress while connecting
   $('btnConnToggle').textContent = bodyOpen ? 'Details ▴' : 'Details ▾'; $('btnConnToggle').setAttribute('aria-expanded', String(bodyOpen));
   $('connBody').hidden = c && !bodyOpen;
   $('devGrid').hidden = !c; $('connectedOnly').hidden = !c;
@@ -787,10 +831,10 @@ function waitForDevice(device) {
 
 async function connectTo(device, quiet = false) {
   if (connecting) return false;
-  connecting = true; stopWaiting(); renderConn('connecting');
+  connecting = true; connPhase = ''; stopWaiting(); renderConn('connecting');
   try {
     connCount++;
-    await link.open(device);
+    await link.open(device, { attempts: quiet ? 2 : 3, onPhase: ph => { connPhase = '· ' + ph + '…'; renderConn(); } });
     rememberedDevice = device; savedDev.set(device);
     Object.assign(devInfo, { name: device.name || 'Omi', bat: null, fw: '', codec: '', charging: false }); bodyOpen = false;
     connecting = false; renderConn('connected');
@@ -799,9 +843,11 @@ async function connectTo(device, quiet = false) {
     return true;
   } catch (e) {
     connecting = false; link.disconnect();
+    if (e.cancelled) { log('Connection cancelled'); renderConn('disconnected'); return false; }
+    const hint = e.timeout ? '\n\nIf the Omi\'s LED shows it is connected but this keeps timing out, the phone/browser has a stale Bluetooth link. Try: turn the Omi off and on, toggle Bluetooth on this device (or forget the Omi in its Bluetooth settings), then connect again.' : '';
     log(e.message, quiet ? 'warn' : 'err');
     renderConn('disconnected');
-    if (quiet && !e.fatal) waitForDevice(device); else if (!quiet) alert(e.message);
+    if (quiet && !e.fatal) waitForDevice(device); else if (!quiet) alert(e.message + hint);
     return false;
   } finally { connecting = false; refreshButtons(); }
 }
@@ -1077,7 +1123,7 @@ function updateLiveUi(final) {
 /* ---------- wiring ---------- */
 $('btnConnect').onclick = pickDevice; $('btnPick').onclick = pickDevice;
 $('btnReconnect').onclick = () => rememberedDevice && connectTo(rememberedDevice);
-$('btnDisconnect').onclick = () => { stopWaiting(); link.disconnect(); };
+$('btnDisconnect').onclick = () => { stopWaiting(); if (connecting) link.cancelOpen(); else link.disconnect(); };
 $('btnForget').onclick = forgetDevice;
 $('btnConnToggle').onclick = () => { bodyOpen = !bodyOpen; renderConn(); };
 $('setRec').onchange = () => applySetting('mute', UUID.setMute, $('setRec').checked ? 0 : 1);

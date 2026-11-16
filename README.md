@@ -72,6 +72,16 @@ same minute, so `TZ=UTC git log -1 --format=%ad --date=format:%y%m%d%H%M` equals
 (`tools/stamp-version.sh` only does the stamping.) Commits made another way, such as through the GitHub web editor, keep the
 old version and won't trigger the update banner.
 
+## Troubleshooting: stuck on "Connecting…"
+
+The Omi's LED turning blue only means the Bluetooth link is up; the browser still has to discover the Omi's services
+before the page can talk to it, and that step can stall (most often on Android after the phone or Omi has been connected
+elsewhere). The Activity log opens while connecting and shows each step with timings (Bluetooth link, finding the storage
+service, opening channels, enabling notifications). A stalled step is abandoned after a timeout and retried up to 3 times;
+**Cancel** aborts at any time. If it keeps timing out: turn the Omi off and on, toggle Bluetooth on the phone/computer (or
+forget the Omi in its Bluetooth settings), and make sure the Omi phone app is closed. If it still stalls, the log line
+before the timeout tells which step.
+
 ## Protocol notes
 
 The public [protocol page](https://docs.omi.me/doc/developer/Protocol) covers live streaming only. Offline storage is
