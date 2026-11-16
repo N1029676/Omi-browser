@@ -37,6 +37,11 @@ Once connected, the **Device settings** card reads and writes the Omi's settings
 * **LED brightness** 0–100 %
 * **Microphone gain** 0–8
 
+Which of these exist depends on the Omi's firmware. The page reads the firmware's feature flags and shows
+"Not supported by this Omi's firmware" for anything it lacks (for example, remote recording on/off only exists in newer
+firmware; older firmware only offers LED brightness and mic gain). The Activity log lists the characteristics the
+settings service actually exposes.
+
 ## Remembered device
 
 The page remembers the Omi you connected to and, after a reload, reconnects to it without showing the device picker

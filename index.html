@@ -75,6 +75,7 @@
   .card-head + .setting { border-top: 0; }
   .setting .lbl { min-width: 0; } .setting .lbl b { display: block; }
   .setting .ctl { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: flex-end; max-width: 380px; }
+  .unsup { color: var(--warn) !important; }
   .setting output { width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
   .switch { position: relative; width: 46px; height: 26px; display: inline-block; flex: none; }
   .switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
@@ -187,11 +188,11 @@
         <label class="switch"><input type="checkbox" id="setRec" role="switch" aria-label="Recording" disabled><span></span></label>
       </div>
       <div class="setting">
-        <div class="lbl"><b>LED brightness</b></div>
+        <div class="lbl"><b>LED brightness</b><span class="note" id="ledHint"></span></div>
         <div class="ctl"><input type="range" id="setLed" min="0" max="100" step="5" aria-label="LED brightness" disabled><output id="setLedVal">–</output></div>
       </div>
       <div class="setting">
-        <div class="lbl"><b>Microphone gain</b><span class="note">0 = lowest, 8 = highest</span></div>
+        <div class="lbl"><b>Microphone gain</b><span class="note" id="gainHint">0 = lowest, 8 = highest</span></div>
         <div class="ctl"><input type="range" id="setGain" min="0" max="8" step="1" aria-label="Microphone gain" disabled><output id="setGainVal">–</output></div>
       </div>
     </section>
@@ -227,7 +228,7 @@
 'use strict';
 
 // yymmddhhmm (UTC) of the commit this file was committed in. Stamped by tools/stamp-version.sh; do not edit by hand.
-const VERSION = '2611160948';
+const VERSION = '2611160954';
 
 /* =====================================================================
  * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
@@ -245,6 +246,8 @@ const VERSION = '2611160948';
 const UUID = {
   audioSvc: '19b10000-e8f2-537e-4f6c-d104768a1214',
   audioData:'19b10001-e8f2-537e-4f6c-d104768a1214',
+  featSvc:  '19b10020-e8f2-537e-4f6c-d104768a1214',   // features service: u32 LE bitmask of what this firmware supports
+  featChar: '19b10021-e8f2-537e-4f6c-d104768a1214',
   setSvc:   '19b10010-e8f2-537e-4f6c-d104768a1214',   // settings service
   setLed:   '19b10011-e8f2-537e-4f6c-d104768a1214',   // LED brightness (dim ratio) u8 0-100, R/W
   setGain:  '19b10012-e8f2-537e-4f6c-d104768a1214',   // microphone gain u8 0-8, R/W
@@ -403,7 +406,7 @@ class OmiLink {
 
   /** Show the browser's device picker. */
   choose(acceptAll) {
-    const optionalServices = [UUID.audioSvc, UUID.storSvc, UUID.setSvc, 'battery_service', 'device_information'];
+    const optionalServices = [UUID.audioSvc, UUID.storSvc, UUID.setSvc, UUID.featSvc, 'battery_service', 'device_information'];
     return navigator.bluetooth.requestDevice(acceptAll ? { acceptAllDevices: true, optionalServices }
       : { filters: [{ namePrefix: 'Omi' }, { services: [UUID.audioSvc] }], optionalServices });
   }
@@ -497,6 +500,8 @@ class OmiLink {
     if (!this.settingsSvc) this.settingsSvc = await this.serial(() => this.server.getPrimaryService(UUID.setSvc));
     return this.serial(() => this.settingsSvc.getCharacteristic(uuid));
   }
+  async listSettingChars() { await this.settingChar(UUID.setLed).catch(() => {}); const svc = this.settingsSvc || await this.serial(() => this.server.getPrimaryService(UUID.setSvc));
+    return (await this.serial(() => svc.getCharacteristics())).map(c => c.uuid.slice(0, 8)); }
   async getSetting(uuid) { const c = await this.settingChar(uuid); return (await this.serial(() => c.readValue())).getUint8(0); }
   async putSetting(uuid, val) {
     const c = await this.settingChar(uuid), v = Uint8Array.of(val);
@@ -888,17 +893,29 @@ async function afterConnect() {
 let settings = {}, settingBusy = false;
 const settingsOk = {};
 
+const settingsUnsupported = {};
+const FEATURE_BIT = { led: 1 << 7, gain: 1 << 8, mute: 1 << 10 };
+
 async function loadSettings() {
-  settings = {}; for (const k of Object.keys(settingsOk)) delete settingsOk[k];
-  let first = null;
+  settings = {}; for (const k of Object.keys(settingsOk)) delete settingsOk[k]; for (const k of Object.keys(settingsUnsupported)) delete settingsUnsupported[k];
+  let first = null, features = null;
+  try { features = (await link.readChar(UUID.featSvc, UUID.featChar)).getUint32(0, true); log('Firmware feature flags: 0x' + features.toString(16)); }
+  catch { log('Firmware feature flags unavailable; probing settings directly', 'warn'); }
+  const why = `Not supported by this Omi's firmware${devInfo.fw ? ' (v' + devInfo.fw + ')' : ''}. Update the firmware to use it.`;
   for (const [k, u] of [['led', UUID.setLed], ['gain', UUID.setGain], ['mute', UUID.setMute]]) {
-    try { settings[k] = await link.getSetting(u); settingsOk[k] = true; } catch (e) { first = first || e; }
+    if (features != null && !(features & FEATURE_BIT[k])) { settingsUnsupported[k] = why; continue; }
+    try { settings[k] = await link.getSetting(u); settingsOk[k] = true; }
+    catch (e) { if (e.name === 'NotFoundError') settingsUnsupported[k] = why; else first = first || e; }
+  }
+  if (Object.keys(settingsUnsupported).length) {
+    log('Settings not supported by this firmware: ' + Object.keys(settingsUnsupported).join(', '), 'warn');
+    try { log('Settings service exposes characteristics: ' + (await link.listSettingChars()).join(', ')); } catch {}
   }
   if (first) {
     log('Settings: ' + first.message, 'warn');
     $('setNote').textContent = first.name === 'SecurityError'
       ? 'This browser permission predates settings support: use Details → "Forget this device", then connect again.'
-      : Object.keys(settingsOk).length ? 'Some settings are unavailable on this firmware.' : 'Settings unavailable: ' + first.message;
+      : 'Settings unavailable: ' + first.message;
   } else $('setNote').textContent = '';
   paintSettings(); refreshButtons();
 }
@@ -909,7 +926,12 @@ function paintSettings() {
   if (settings.mute != null) $('setRec').checked = !settings.mute;
   const paused = link.connected && settings.mute === 1;
   $('recPill').hidden = !paused; $('liveMuted').hidden = !paused;
-  $('recHint').textContent = paused ? 'Paused: the Omi is not capturing any audio.' : 'Turn off to stop the Omi capturing audio (stored and live).';
+  const hint = (id, key, normal) => { const el = $(id), u = settingsUnsupported[key]; el.textContent = u || normal; el.classList.toggle('unsup', !!u); };
+  hint('recHint', 'mute', paused ? 'Paused: the Omi is not capturing any audio.' : 'Turn off to stop the Omi capturing audio (stored and live).');
+  hint('ledHint', 'led', ''); hint('gainHint', 'gain', '0 = lowest, 8 = highest');
+  // A control the firmware can't honour is hidden rather than shown as a dead (and misleading) "off" switch.
+  $('setRec').closest('.switch').hidden = !!settingsUnsupported.mute;
+  $('setLed').closest('.ctl').hidden = !!settingsUnsupported.led; $('setGain').closest('.ctl').hidden = !!settingsUnsupported.gain;
 }
 
 async function applySetting(key, uuid, value) {
