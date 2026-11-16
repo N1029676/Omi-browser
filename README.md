@@ -29,6 +29,24 @@ Downloads and live recordings are saved in the browser's IndexedDB as they arriv
 requested. Recordings survive reloads, and an interrupted download resumes where it stopped. Browser storage can
 be cleared by the user or the browser, so export WAV/.opus files for anything you want to keep.
 
+## Transcription
+
+Recordings can be sent to your own OpenAI-compatible speech-to-text server (`POST …/v1/audio/transcriptions`, multipart
+form with `file`, `model`, optional `language` and `response_format`). Open **Transcription → Settings** and enter the
+endpoint URL (it is stored only in your browser and is not part of this repository), then:
+
+* **Transcribe** on a recording, or **Transcribe all** for everything that has no transcript yet.
+* Tick **Transcribe automatically** to send new recordings as soon as a download or live capture finishes.
+* Audio is sent as 16 kHz WAV (most compatible) or Opus in Ogg (smaller). Long recordings are split into chunks
+  (default 5 minutes) so each request stays small; the pieces are joined, with timestamps offset correctly if you ask for them
+  (`verbose_json`). Transcripts are stored in the browser (IndexedDB) next to the recordings, with Copy and Download `.txt`.
+* **Test connection** sends one second of silence and reports whether the server answered.
+
+Important: a page served over **https://** (such as GitHub Pages) cannot call a plain **http://** server: browsers block
+it as mixed content. Either put the transcription server behind HTTPS (for example a reverse proxy with a certificate), or
+open the app from `http://localhost` (e.g. `python3 -m http.server`). The server must also allow cross-origin requests
+(CORS headers). The page's error messages say which of these looks like the cause.
+
 ## Device settings
 
 Once connected, the **Device settings** card reads and writes the Omi's settings service:

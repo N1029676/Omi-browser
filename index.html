@@ -90,6 +90,14 @@
   #log .err { color: var(--danger); } #log .warn { color: var(--warn); }
   details > summary { cursor: pointer; color: var(--muted); }
   details.sub { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  input[type=text], input[type=url], select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 100%; min-width: 0; }
+  .form { display: grid; gap: 10px; margin-top: 10px; }
+  .frow { display: grid; grid-template-columns: 170px 1fr; gap: 8px; align-items: center; }
+  .frow > label { color: var(--muted); font-size: 13px; }
+  @media (max-width: 520px) { .frow { grid-template-columns: 1fr; gap: 4px; } }
+  details.tr { margin-top: 2px; } details.tr > summary { color: var(--text); font-size: 14px; }
+  .trtext { white-space: pre-wrap; font: inherit; margin: 8px 0; background: var(--code); padding: 10px; border-radius: 8px; max-height: 280px; overflow: auto; user-select: text; }
+  .trstat { margin: 0; } .trstat.err { color: var(--danger); }
   footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
   footer a { color: inherit; }
 </style>
@@ -213,6 +221,29 @@
     <p class="note">Recordings are kept in this browser's storage (they survive reloads, but are lost if you clear site data), so save them as files too. <span id="storeInfo"></span></p>
   </section>
 
+  <section id="secTr">
+    <div class="card-head">
+      <div><h2>Transcription</h2><div class="summary" id="trSummary">Not configured</div></div>
+      <span class="row"><button class="small" id="btnTrAll" disabled>Transcribe all</button><button class="small danger hidden" id="btnTrCancel">Cancel</button></span>
+    </div>
+    <div class="note" id="trProgress"></div>
+    <details class="sub" id="trBox">
+      <summary>Settings</summary>
+      <p class="note">Recordings are sent to <b>your own</b> OpenAI-compatible speech-to-text server (<code>POST …/v1/audio/transcriptions</code>), nowhere else. Settings stay in this browser.</p>
+      <div class="form">
+        <div class="frow"><label for="trUrl">Endpoint URL</label><input type="url" id="trUrl" placeholder="http://host:port/v1/audio/transcriptions" autocomplete="off" spellcheck="false"></div>
+        <div class="frow"><label for="trModel">Model</label><input type="text" id="trModel" placeholder="whisper-1" autocomplete="off" spellcheck="false"></div>
+        <div class="frow"><label for="trLang">Language</label><input type="text" id="trLang" placeholder="auto-detect (or e.g. en)" autocomplete="off" spellcheck="false"></div>
+        <div class="frow"><label for="trFmt">Send audio as</label><select id="trFmt"><option value="wav">WAV 16 kHz (most compatible)</option><option value="opus">Opus in Ogg (smaller)</option></select></div>
+        <div class="frow"><label for="trChunk">Split every (minutes)</label><input type="number" id="trChunk" min="0.1" max="60" step="0.1"></div>
+        <div class="frow"><label></label><label class="note" style="margin:0"><input type="checkbox" id="trTs"> Include timestamps (asks for verbose_json)</label></div>
+        <div class="frow"><label></label><label class="note" style="margin:0"><input type="checkbox" id="trAuto"> Transcribe automatically after a download or live capture</label></div>
+        <div class="row"><button id="btnTrTest">Test connection</button><span class="note" id="trTestRes" style="margin:0"></span></div>
+      </div>
+      <p class="note">A page served over <b>https://</b> (like GitHub Pages) cannot call a plain <b>http://</b> server: browsers block it as mixed content. Put the server behind HTTPS (e.g. a reverse proxy with a certificate), or open this app from <code>http://localhost</code>. The server must also allow cross-origin requests (CORS).</p>
+    </details>
+  </section>
+
   <section>
     <details id="logBox">
       <summary>Activity log</summary>
@@ -228,7 +259,7 @@
 'use strict';
 
 // yymmddhhmm (UTC) of the commit this file was committed in. Stamped by tools/stamp-version.sh; do not edit by hand.
-const VERSION = '2611161004';
+const VERSION = '2611161119';
 
 /* =====================================================================
  * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
@@ -606,8 +637,10 @@ const DB = (() => {
   let dbp = null;
   const open = () => dbp || (dbp = new Promise((res, rej) => {
     if (!window.indexedDB) return rej(new Error('IndexedDB is not available'));
-    const r = indexedDB.open('omi-audio', 1);
-    r.onupgradeneeded = () => { r.result.createObjectStore('chunks', { keyPath: ['ring', 'seq'] }); r.result.createObjectStore('meta', { keyPath: 'ring' }); };
+    const r = indexedDB.open('omi-audio', 2);
+    r.onupgradeneeded = () => { const d = r.result, has = n => d.objectStoreNames.contains(n);
+      if (!has('chunks')) d.createObjectStore('chunks', { keyPath: ['ring', 'seq'] }); if (!has('meta')) d.createObjectStore('meta', { keyPath: 'ring' });
+      if (!has('transcripts')) d.createObjectStore('transcripts', { keyPath: 'id' }); };
     r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   }));
   const done = tx => new Promise((res, rej) => { tx.oncomplete = res; tx.onabort = tx.onerror = () => rej(tx.error || new Error('write aborted')); });
@@ -623,8 +656,10 @@ const DB = (() => {
     },
     async loadAll() { const d = await open(), tx = d.transaction(['chunks', 'meta'], 'readonly');
       return { chunks: await all(tx, 'chunks'), metas: await all(tx, 'meta') }; },
-    async clear() { const d = await open(), tx = d.transaction(['chunks', 'meta'], 'readwrite');
-      tx.objectStore('chunks').clear(); tx.objectStore('meta').clear(); await done(tx); },
+    async clear() { const d = await open(), tx = d.transaction(['chunks', 'meta', 'transcripts'], 'readwrite');
+      tx.objectStore('chunks').clear(); tx.objectStore('meta').clear(); tx.objectStore('transcripts').clear(); await done(tx); },
+    async saveTranscript(t) { const d = await open(), tx = d.transaction('transcripts', 'readwrite', { durability: 'strict' }); tx.objectStore('transcripts').put(t); await done(tx); },
+    async loadTranscripts() { const d = await open(), tx = d.transaction('transcripts', 'readonly'); return all(tx, 'transcripts'); },
   };
 })();
 
@@ -646,6 +681,7 @@ async function restoreLibrary() {
     for (const m of metas) ringOf(m.ring).meta = m;
     chunks.sort((a, b) => a.ring < b.ring ? -1 : a.ring > b.ring ? 1 : a.seq - b.seq);
     for (const c of chunks) ingest(ringOf(c.ring), c.seq, new Uint8Array(c.data));
+    for (const t of await DB.loadTranscripts()) transcripts.set(t.id, t);
     if (chunks.length) log(`Restored ${totalItems().toLocaleString()} records from browser storage`);
   } catch (e) { persistFailed = true; log('Browser storage unavailable: ' + e.message + ' (downloads will only be kept until you close the page)', 'warn'); }
   renderRecordings(); refreshButtons(); updateStoreInfo();
@@ -678,6 +714,7 @@ function allSegments() {
   }
   return out.sort((a, b) => (a.noClock - b.noClock) || (b.start - a.start));
 }
+const segKey = seg => `${seg.ring}:${seg.items[0].seq}-${seg.items[seg.items.length - 1].seq}`;
 const framesOf = seg => { const out = []; for (const it of seg.items) for (const f of parsePayload(it.payload)) out.push(f); return out; };
 function segTitle(seg) {
   if (!seg.noClock) return new Date(seg.start * 1000).toLocaleString();
@@ -712,6 +749,7 @@ function refreshButtons() {
   $('btnDownload').disabled = !c || busy || lv || !lastInfo || resumeAt >= lastInfo.writeSeq;
   $('btnCancel').classList.toggle('hidden', !busy);
   $('btnReset').disabled = busy || lv || !have;
+  $('btnTrAll').disabled = trBusy || !have; $('btnTrCancel').classList.toggle('hidden', !trBusy);
   $('btnSaveAll').disabled = busy || !have; $('btnRaw').disabled = busy || !have;
   const complete = c && lastInfo && m && m.startSeq <= lastInfo.readSeq && m.next >= lastInfo.writeSeq && lastInfo.writeSeq > lastInfo.readSeq && !persistFailed;
   $('btnFree').disabled = busy || lv || !complete || !$('chkSaved').checked;
@@ -740,7 +778,8 @@ function renderRecordings() {
 function doRender() {
   const box = $('recs');
   if (!totalItems()) { box.innerHTML = '<p class="note">Nothing downloaded yet.</p>'; return; }
-  if ([...box.querySelectorAll('audio')].some(a => !a.paused)) return;   // don't rebuild the list while something is playing
+  if ([...box.querySelectorAll('audio')].some(a => !a.paused)) { renderPending = true; return; }   // don't rebuild the list while something is playing
+  renderPending = false;
   const segs = allSegments();
   box.textContent = '';
   segs.forEach(seg => {
@@ -764,6 +803,22 @@ function doRender() {
       save(wavBlob(pcm, rate), segFile(seg, 'wav'));
     });
     mk('Download .opus', async () => save(oggOpusBlob(framesOf(seg)), segFile(seg, 'opus')));
+    const tid = segKey(seg), tr = transcripts.get(tid), st = trStatus.get(tid);
+    mk(tr ? 'Re-transcribe' : 'Transcribe', async () => { await runTranscription([seg]); });
+    if (st) { const d = document.createElement('div'); d.className = 'note trstat' + (st.startsWith('Failed') ? ' err' : ''); d.textContent = st; el.appendChild(d); }
+    if (tr) {
+      const det = document.createElement('details'); det.className = 'tr'; det.open = trOpen.has(tid);
+      det.ontoggle = () => { det.open ? trOpen.add(tid) : trOpen.delete(tid); };
+      const flat = tr.text.replace(/\s+/g, ' ').trim();
+      const sm = document.createElement('summary'); sm.textContent = 'Transcript · ' + (flat ? flat.slice(0, 70) + (flat.length > 70 ? '…' : '') : '(no speech detected)'); det.appendChild(sm);
+      const pre = document.createElement('pre'); pre.className = 'trtext'; pre.textContent = tr.text || '(no speech detected)'; det.appendChild(pre);
+      const r2 = document.createElement('div'); r2.className = 'row';
+      const cp = document.createElement('button'); cp.className = 'small'; cp.textContent = 'Copy';
+      cp.onclick = async () => { try { await navigator.clipboard.writeText(tr.text); cp.textContent = 'Copied'; setTimeout(() => { cp.textContent = 'Copy'; }, 1200); } catch { alert('Copy failed'); } };
+      const dl = document.createElement('button'); dl.className = 'small'; dl.textContent = 'Download .txt';
+      dl.onclick = () => save(new Blob([tr.text + '\n'], { type: 'text/plain' }), segFile(seg, 'txt').replace(/\.txt$/, '_transcript.txt'));
+      r2.append(cp, dl); det.appendChild(r2); el.appendChild(det);
+    }
     box.appendChild(el);
   });
 }
@@ -998,6 +1053,7 @@ async function onDownload() {
       start >= end ? `Done: ${(end - runStart).toLocaleString()} records in ${secs.toFixed(1)}s (${fmtBytes(bytesTotal / Math.max(secs, .001))}/s). Saved in this browser; nothing was erased from the Omi.`
                    : `Stopped at record ${start.toLocaleString()} of ${end.toLocaleString()}. Press Download to resume.`);
     log(start >= end ? 'Download complete' : 'Download incomplete', start >= end ? '' : 'warn');
+    if (start >= end) maybeAutoTranscribe();
   } catch (e) {
     if (e.cancelled) { log('Cancelled', 'warn'); setProgress(start - runStart, end - runStart, 'Cancelled. Progress is saved; press Download to resume.'); }
     else { log(e.message, 'err'); $('progText').textContent = 'Error: ' + e.message + ' (progress is saved; press Download to resume)'; }
@@ -1134,7 +1190,7 @@ async function endLive() {
   const ctx = live.ctx; if (ctx) setTimeout(() => ctx.close().catch(() => {}), 1500);
   if (live.seq === 0) rings.delete(live.key);                          // nothing was captured
   log(`Live capture stopped: ${fmtDur(live.ms / 1000)} saved, ${live.lost} frame(s) lost`);
-  updateLiveUi(true); refreshButtons(); renderRecordings();
+  updateLiveUi(true); refreshButtons(); renderRecordings(); maybeAutoTranscribe();
 }
 
 function updateLiveUi(final) {
@@ -1143,6 +1199,153 @@ function updateLiveUi(final) {
   $('liveStats').textContent = `${fmtDur(live.ms / 1000)} captured · ${live.frames.toLocaleString()} frames · ${live.lost} lost` + (live.on ? '' : ' · saved to Recordings below');
   live.level *= 0.85; $('liveBar').style.width = live.on ? Math.min(100, live.level * 400) + '%' : '0';
 }
+
+/* =====================================================================
+ * Transcription: send recordings to an OpenAI-compatible speech-to-text endpoint
+ *   POST {url}  multipart/form-data: file, model, [language], response_format
+ * Long recordings are split into chunks; transcripts are stored in IndexedDB.
+ * ===================================================================== */
+const TR_DEFAULTS = { url: '', model: 'whisper-1', language: '', format: 'wav', chunkMin: 5, timestamps: false, auto: false };
+const trCfg = (() => { try { return { ...TR_DEFAULTS, ...JSON.parse(localStorage.getItem('omi.transcribe') || '{}') }; } catch { return { ...TR_DEFAULTS }; } })();
+const saveTrCfg = () => { try { localStorage.setItem('omi.transcribe', JSON.stringify(trCfg)); } catch {} };
+const transcripts = new Map();      // segment key -> {id,text,segments,model,chunks,createdAt}
+const trStatus = new Map();         // segment key -> status / error text while or after running
+const trOpen = new Set();           // transcripts the user has expanded
+let trBusy = false, trCtl = null, renderPending = false;
+const mmss = sec => { sec = Math.max(0, Math.floor(sec)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60; return (h ? h + ':' + pad(m) : m) + ':' + pad(x); };
+
+function netErrorHelp(url, proto = location.protocol) {
+  let u = null; try { u = new URL(url); } catch {}
+  if (!u) return 'The endpoint URL is not valid.';
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  if (proto === 'https:' && u.protocol === 'http:' && !local)
+    return `Could not reach ${u.host}. This page is served over HTTPS and browsers block it from calling a plain http:// server (mixed content). Serve the endpoint over HTTPS (for example behind a reverse proxy with a certificate), or open this app from http://localhost.`;
+  return `Could not reach ${u.host}. Check that the server is running and reachable from this device, and that it allows cross-origin requests (CORS: Access-Control-Allow-Origin).`;
+}
+
+/** Split Opus frames into chunks of about `limitMs` of audio. */
+function chunkFrames(frames, limitMs) {
+  const out = []; let cur = [], ms = 0;
+  for (const f of frames) {
+    const d = opusMs(f); cur.push(f); ms += d;
+    if (ms >= limitMs) { out.push({ frames: cur, ms }); cur = []; ms = 0; }
+  }
+  if (cur.length) out.push({ frames: cur, ms });
+  return out;
+}
+
+async function chunkBlob(frames) {
+  if (trCfg.format === 'wav' && typeof AudioDecoder !== 'undefined') {
+    const { pcm, rate, errors } = await decodeToPcm16(frames);
+    if (errors) log(`${errors} frame(s) could not be decoded while preparing audio`, 'warn');
+    return { blob: wavBlob(pcm, rate), name: 'audio.wav' };
+  }
+  return { blob: oggOpusBlob(frames), name: 'audio.opus' };
+}
+
+/** One request to the endpoint. Resolves {text, segments|null}. */
+async function postTranscription(blob, name, signal) {
+  const fd = new FormData();
+  fd.append('file', blob, name); fd.append('model', trCfg.model || 'whisper-1');
+  if (trCfg.language.trim()) fd.append('language', trCfg.language.trim());
+  fd.append('response_format', trCfg.timestamps ? 'verbose_json' : 'json');
+  let res;
+  try { res = await fetch(trCfg.url, { method: 'POST', body: fd, signal }); }
+  catch (e) { if (e.name === 'AbortError') throw e; const x = new Error(netErrorHelp(trCfg.url)); x.network = true; throw x; }
+  if (!res.ok) { const t = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 240); throw new Error(`Server returned ${res.status}${t ? ': ' + t : ''}`); }
+  const ct = res.headers.get('content-type') || '';
+  const data = ct.includes('json') ? await res.json() : { text: await res.text() };
+  return { text: String(data.text || '').trim(), segments: Array.isArray(data.segments) ? data.segments : null };
+}
+
+async function transcribeSegment(seg, onStatus, signal) {
+  const chunks = chunkFrames(framesOf(seg), Math.max(0.1, +trCfg.chunkMin || 5) * 60000);
+  const texts = [], lines = []; let offset = 0, haveSegs = false;
+  for (let i = 0; i < chunks.length; i++) {
+    onStatus(`chunk ${i + 1}/${chunks.length}`);
+    const { blob, name } = await chunkBlob(chunks[i].frames);
+    onStatus(`chunk ${i + 1}/${chunks.length} · uploading ${fmtBytes(blob.size)}`);
+    // One controller per request: the user's Cancel (run-wide `signal`) or a 10-minute timeout aborts just this request.
+    const ctl = new AbortController(); let timed = false;
+    const onAbort = () => ctl.abort(); if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', onAbort);
+    const timer = setTimeout(() => { timed = true; ctl.abort(); }, 10 * 60 * 1000);
+    let r; try { r = await postTranscription(blob, name, ctl.signal); }
+    catch (e) { if (timed) throw new Error('The server took longer than 10 minutes to answer.'); throw e; }
+    finally { clearTimeout(timer); signal.removeEventListener('abort', onAbort); }
+    if (r.text) texts.push(r.text);
+    if (r.segments && r.segments.length) {
+      haveSegs = true;
+      for (const g of r.segments) { const t = String(g.text || '').trim(); if (t) lines.push({ start: (+g.start || 0) + offset / 1000, end: (+g.end || 0) + offset / 1000, text: t }); }
+    }
+    offset += chunks[i].ms;
+  }
+  const id = segKey(seg);
+  return { id, text: haveSegs ? lines.map(l => `[${mmss(l.start)}] ${l.text}`).join('\n') : texts.join(' '), segments: haveSegs ? lines : null,
+    model: trCfg.model, chunks: chunks.length, createdAt: Date.now(), durationMs: seg.ms };
+}
+
+function setTrProgress(t) { $('trProgress').textContent = t || ''; }
+
+async function runTranscription(segs) {
+  if (!trCfg.url.trim()) { $('trBox').open = true; $('trUrl').focus(); alert('Enter your transcription endpoint URL in the Transcription settings first.'); return; }
+  if (trBusy) return;
+  segs = segs.filter(sg => sg.ms >= 1000);
+  if (!segs.length) { setTrProgress('Nothing to transcribe.'); return; }
+  trBusy = true; trCtl = new AbortController(); refreshButtons();
+  let ok = 0, failed = 0, cancelled = false;
+  try {
+    for (let i = 0; i < segs.length; i++) {
+      const sg = segs[i], id = segKey(sg);
+      try {
+        const t = await transcribeSegment(sg, st => { trStatus.set(id, 'Transcribing… ' + st); setTrProgress(`Transcribing ${i + 1}/${segs.length} · ${st}`); renderRecordings(); }, trCtl.signal);
+        transcripts.set(id, t); trStatus.delete(id); ok++;
+        try { await DB.saveTranscript(t); } catch (e) { log('Could not save the transcript to browser storage: ' + e.message, 'warn'); }
+        log(`Transcribed ${segTitle(sg)} (${fmtDur(sg.ms / 1000)}, ${t.chunks} chunk${t.chunks > 1 ? 's' : ''})`); renderRecordings();
+      } catch (e) {
+        if (e.name === 'AbortError') { trStatus.delete(id); cancelled = true; break; }
+        failed++; trStatus.set(id, 'Failed: ' + e.message); log('Transcription failed: ' + e.message, 'err');
+        if (e.network) break;                                   // the server is unreachable: the rest would fail too
+      }
+    }
+  } finally {
+    trBusy = false; trCtl = null; refreshButtons(); renderRecordings();
+    setTrProgress(cancelled ? 'Cancelled.' : failed ? `Done: ${ok} transcribed, ${failed} failed (see the recording for details).` : `Done: ${ok} transcribed.`);
+  }
+}
+
+const pendingSegments = () => allSegments().filter(sg => sg.ms >= 1000 && !transcripts.has(segKey(sg)));
+function maybeAutoTranscribe() { if (trCfg.auto && trCfg.url.trim() && !trBusy) runTranscription(pendingSegments()); }
+
+async function testTranscribe() {
+  const out = $('trTestRes'); if (!trCfg.url.trim()) { out.textContent = 'Enter the endpoint URL first.'; return; }
+  out.textContent = 'Testing…'; const t0 = performance.now();
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 30000);
+  try {
+    const r = await postTranscription(wavBlob(new Int16Array(16000), 16000), 'test.wav', ctl.signal);   // one second of silence
+    out.textContent = `OK: the server answered in ${((performance.now() - t0) / 1000).toFixed(1)} s` + (r.text ? ` (“${r.text.slice(0, 40)}”)` : '');
+  } catch (e) { out.textContent = e.name === 'AbortError' ? 'No answer after 30 s.' : e.message; }
+  finally { clearTimeout(to); }
+}
+
+function paintTrSummary() {
+  let host = ''; try { host = new URL(trCfg.url).host; } catch {}
+  $('trSummary').textContent = host ? `${host} · ${trCfg.model || 'whisper-1'}${trCfg.auto ? ' · automatic' : ''}` : 'Not configured: open Settings and enter your endpoint';
+}
+function loadTrForm() {
+  $('trUrl').value = trCfg.url; $('trModel').value = trCfg.model; $('trLang').value = trCfg.language; $('trFmt').value = trCfg.format;
+  $('trChunk').value = trCfg.chunkMin; $('trTs').checked = trCfg.timestamps; $('trAuto').checked = trCfg.auto; paintTrSummary();
+}
+const bindTr = (id, key, get) => { $(id).addEventListener('input', () => { trCfg[key] = get($(id)); saveTrCfg(); paintTrSummary(); $('trTestRes').textContent = ''; }); };
+bindTr('trUrl', 'url', e => e.value.trim()); bindTr('trModel', 'model', e => e.value.trim()); bindTr('trLang', 'language', e => e.value);
+bindTr('trFmt', 'format', e => e.value); bindTr('trChunk', 'chunkMin', e => +e.value || 5); bindTr('trTs', 'timestamps', e => e.checked); bindTr('trAuto', 'auto', e => e.checked);
+$('trFmt').addEventListener('change', () => { trCfg.format = $('trFmt').value; saveTrCfg(); });
+$('btnTrAll').onclick = () => runTranscription(pendingSegments());
+$('btnTrCancel').onclick = () => trCtl && trCtl.abort();
+$('btnTrTest').onclick = testTranscribe;
+// a list rebuild was postponed while something was playing: do it when playback stops
+$('recs').addEventListener('pause', () => { if (renderPending) renderRecordings(); }, true);
+$('recs').addEventListener('ended', () => { if (renderPending) renderRecordings(); }, true);
+loadTrForm();
 
 /* ---------- wiring ---------- */
 $('btnConnect').onclick = pickDevice; $('btnPick').onclick = pickDevice;
@@ -1165,7 +1368,7 @@ $('btnCancel').onclick = () => link.cancel();
 $('btnReset').onclick = async () => {
   if (!confirm('Delete all recordings stored in this browser?\n\nAudio you have not freed on the Omi can be downloaded again. If you already freed it on the Omi, this is the only copy.')) return;
   try { await DB.clear(); } catch (e) { log(e.message, 'err'); }
-  rings.clear(); setProgress(0, 0, ''); renderRecordings(); refreshButtons(); updateStoreInfo(); };
+  rings.clear(); transcripts.clear(); trStatus.clear(); setProgress(0, 0, ''); renderRecordings(); refreshButtons(); updateStoreInfo(); };
 $('btnSaveAll').onclick = saveAllWav;
 $('btnRaw').onclick = () => { for (const [k, R] of rings) { if (!R.chunks.length) continue;
   const seqs = R.chunks.map(c => c.seq); save(new Blob(R.chunks.slice().sort((a, b) => a.seq - b.seq).map(c => c.data), { type: 'application/octet-stream' }),
