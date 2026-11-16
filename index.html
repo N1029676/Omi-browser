@@ -105,10 +105,10 @@
     <div class="row">
       <button class="primary" id="btnDownload" disabled>Download stored audio</button>
       <button id="btnCancel" class="hidden">Cancel</button>
-      <button id="btnReset" disabled>Discard downloaded data</button>
+      <button id="btnReset" disabled>Delete stored recordings</button>
     </div>
     <div class="bar"><i id="bar"></i></div>
-    <div class="note" id="progText">Reading does <b>not</b> erase anything on the Omi. Your audio stays on the device until you explicitly free it below.</div>
+    <div class="note" id="progText">Reading does <b>not</b> erase anything on the Omi: your audio stays on the device until you explicitly free it below. Downloads are also saved in this browser, so you can reload the page or resume after a dropped connection.</div>
   </section>
 
   <section>
@@ -121,14 +121,15 @@
         <button id="btnRaw" class="small" disabled>Save raw dump</button>
       </span>
     </div>
+    <p class="note" style="margin:8px 0 0">Recordings are kept in this browser's storage (they survive reloads, but are lost if you clear site data), so save them as files too. <span id="storeInfo"></span></p>
     <div id="recs"><p class="note">Nothing downloaded yet.</p></div>
   </section>
 
   <section>
     <h2>5 · Free device storage (optional)</h2>
-    <p class="note" style="margin-top:0">After you've saved your recordings, you can tell the Omi it may reuse the space for the audio you've downloaded. <b>This permanently removes that audio from the device</b>, so the Omi phone app will not see it either. Unavailable until a download has finished.</p>
+    <p class="note" style="margin-top:0">Once everything is downloaded, you can tell the Omi it may reuse the space taken by that audio. <b>This removes the audio from the device</b>: the Omi phone app can no longer sync it and the firmware will overwrite it. Your copy in this browser then becomes the only one. Available only after a complete download that was saved to browser storage.</p>
     <div class="row">
-      <label class="note"><input type="checkbox" id="chkSaved"> I have saved the files I want to keep</label>
+      <label class="note"><input type="checkbox" id="chkSaved"> I have saved my recordings as files</label>
       <button class="danger" id="btnFree" disabled>Free space on Omi</button>
     </div>
   </section>
@@ -403,29 +404,76 @@ class OmiLink {
 }
 
 /* =====================================================================
- * Session state: everything downloaded so far (kept in memory only)
+ * Library: everything downloaded, grouped by "ring" (one device-storage incarnation),
+ * persisted in IndexedDB so it survives reloads.
  * ===================================================================== */
 const link = new OmiLink();
-let connCount = 0;
+let connCount = 0, persistFailed = false;
 let lastInfo = null, codecId = null;
-let sess = newSession(null);
 let busy = false;
+const PAGE_ID = Math.random().toString(36).slice(2, 8);
 
-function newSession(key) {
-  // items: one per ring record {seq, ts, uptime, ms, payload}; chunks: raw bytes for the lossless dump
-  return { key, startSeq: null, next: null, items: [], chunks: [] };
-}
+// rings: key -> { meta:{ring,startSeq,next}, items:[{seq,ts,uptime,ms,payload}], chunks:[{seq,data}] }
+// meta says: records [startSeq, next) were downloaded contiguously from this ring.
+const rings = new Map();
+const ringOf = k => { if (!rings.has(k)) rings.set(k, { meta: null, items: [], chunks: [] }); return rings.get(k); };
+const totalItems = () => { let n = 0; for (const R of rings.values()) n += R.items.length; return n; };
+/** Old firmware has no ring id: never resume across connections, keep each download separate. */
+const keyFor = info => info.ringId !== null ? info.ringId.toString(16) : `noid-${PAGE_ID}-${connCount}`;
 
-function ingest(startSeq, data) {
+const DB = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    if (!window.indexedDB) return rej(new Error('IndexedDB is not available'));
+    const r = indexedDB.open('omi-audio', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('chunks', { keyPath: ['ring', 'seq'] }); r.result.createObjectStore('meta', { keyPath: 'ring' }); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const done = tx => new Promise((res, rej) => { tx.oncomplete = res; tx.onabort = tx.onerror = () => rej(tx.error || new Error('write aborted')); });
+  const all = (store, name) => new Promise((res, rej) => { const q = store.objectStore(name).getAll(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+  return {
+    /** Chunk and progress marker are written in one transaction and flushed to disk before this resolves. */
+    async saveChunk(meta, seq, data) {
+      const d = await open(), tx = d.transaction(['chunks', 'meta'], 'readwrite', { durability: 'strict' });
+      tx.objectStore('chunks').put({ ring: meta.ring, seq, data: data.slice().buffer });
+      tx.objectStore('meta').put({ ring: meta.ring, startSeq: meta.startSeq, next: meta.next });
+      await done(tx);
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    },
+    async loadAll() { const d = await open(), tx = d.transaction(['chunks', 'meta'], 'readonly');
+      return { chunks: await all(tx, 'chunks'), metas: await all(tx, 'meta') }; },
+    async clear() { const d = await open(), tx = d.transaction(['chunks', 'meta'], 'readwrite');
+      tx.objectStore('chunks').clear(); tx.objectStore('meta').clear(); await done(tx); },
+  };
+})();
+
+function ingest(R, startSeq, data) {
   const n = data.length / REC_SIZE;
   for (let i = 0; i < n; i++) {
     const rec = data.subarray(i * REC_SIZE, (i + 1) * REC_SIZE);
     const raw = ((rec[0] << 24) | (rec[1] << 16) | (rec[2] << 8) | rec[3]) >>> 0;
     const payload = rec.subarray(TS_BYTES);
     let ms = 0; for (const f of parsePayload(payload)) ms += opusMs(f);
-    sess.items.push({ seq: startSeq + i, ts: raw & 0x7fffffff, uptime: !!(raw & UPTIME_FLAG), ms, payload });
+    R.items.push({ seq: startSeq + i, ts: raw & 0x7fffffff, uptime: !!(raw & UPTIME_FLAG), ms, payload });
   }
-  sess.chunks.push(data);
+  R.chunks.push({ seq: startSeq, data });
+}
+
+async function restoreLibrary() {
+  try {
+    const { chunks, metas } = await DB.loadAll();
+    for (const m of metas) ringOf(m.ring).meta = m;
+    chunks.sort((a, b) => a.ring < b.ring ? -1 : a.ring > b.ring ? 1 : a.seq - b.seq);
+    for (const c of chunks) ingest(ringOf(c.ring), c.seq, new Uint8Array(c.data));
+    if (chunks.length) log(`Restored ${totalItems().toLocaleString()} records from browser storage`);
+  } catch (e) { persistFailed = true; log('Browser storage unavailable: ' + e.message + ' (downloads will only be kept until you close the page)', 'warn'); }
+  renderRecordings(); refreshButtons(); updateStoreInfo();
+}
+
+async function updateStoreInfo() {
+  try { const e = await navigator.storage.estimate();
+    $('storeInfo').textContent = `Stored in this browser: ${fmtBytes(e.usage || 0)}` + (e.quota ? ` of ~${fmtBytes(e.quota)} available` : ''); }
+  catch { $('storeInfo').textContent = ''; }
 }
 
 /** Group consecutive records into recordings; a clock gap > gapSec (or a clock change) starts a new one. */
@@ -439,6 +487,15 @@ function segment(items, gapSec) {
     cur.items.push(it); cur.ms += it.ms; cur.lastTs = it.ts;
   }
   return segs;
+}
+/** All recordings across rings: dated ones newest first, undated (device clock unset) last. */
+function allSegments() {
+  const gap = Math.max(1, +$('gapSec').value || 30), out = [];
+  for (const R of rings.values()) {
+    R.items.sort((a, b) => a.seq - b.seq);
+    out.push(...segment(R.items, gap));
+  }
+  return out.sort((a, b) => (a.noClock - b.noClock) || (b.start - a.start));
 }
 const framesOf = seg => { const out = []; for (const it of seg.items) for (const f of parsePayload(it.payload)) out.push(f); return out; };
 function segTitle(seg) {
@@ -462,14 +519,16 @@ function save(blob, name) {
 
 function setBusy(b) { busy = b; refreshButtons(); }
 function refreshButtons() {
-  const c = link.connected, have = sess.items.length > 0;
+  const c = link.connected, have = totalItems() > 0;
+  const R = lastInfo && rings.get(keyFor(lastInfo)), m = R && R.meta;
+  const resumeAt = m && m.next >= lastInfo.readSeq && m.next <= lastInfo.writeSeq ? m.next : (lastInfo ? lastInfo.readSeq : 0);
   $('btnConnect').classList.toggle('hidden', c); $('btnDisconnect').classList.toggle('hidden', !c);
   $('btnInfo').disabled = !c || busy;
-  $('btnDownload').disabled = !c || busy || !lastInfo || lastInfo.writeSeq <= lastInfo.readSeq && !(have && sess.next < lastInfo.writeSeq);
+  $('btnDownload').disabled = !c || busy || !lastInfo || resumeAt >= lastInfo.writeSeq;
   $('btnCancel').classList.toggle('hidden', !busy);
   $('btnReset').disabled = busy || !have;
   $('btnSaveAll').disabled = busy || !have; $('btnRaw').disabled = busy || !have;
-  const complete = c && lastInfo && have && sess.startSeq === lastInfo.readSeq && sess.next >= lastInfo.writeSeq;
+  const complete = c && lastInfo && m && m.startSeq <= lastInfo.readSeq && m.next >= lastInfo.writeSeq && lastInfo.writeSeq > lastInfo.readSeq && !persistFailed;
   $('btnFree').disabled = busy || !complete || !$('chkSaved').checked;
 }
 
@@ -494,15 +553,13 @@ function renderRecordings() {
   clearTimeout(renderTimer); renderTimer = setTimeout(doRender, 300);
 }
 function doRender() {
-  const box = $('recs'), gap = Math.max(1, +$('gapSec').value || 30);
-  if (!sess.items.length) { box.innerHTML = '<p class="note">Nothing downloaded yet.</p>'; return; }
-  const segs = segment(sess.items, gap); window.__segs = segs;
-  const playing = new Set([...box.querySelectorAll('audio')].filter(a => !a.paused).map(a => a.closest('.rec').dataset.i));
-  if (playing.size) return;                                   // don't rebuild the list while something is playing
+  const box = $('recs');
+  if (!totalItems()) { box.innerHTML = '<p class="note">Nothing downloaded yet.</p>'; return; }
+  if ([...box.querySelectorAll('audio')].some(a => !a.paused)) return;   // don't rebuild the list while something is playing
+  const segs = allSegments();
   box.textContent = '';
-  segs.slice().reverse().forEach((seg, ri) => {
-    const i = segs.length - 1 - ri;
-    const el = document.createElement('div'); el.className = 'rec'; el.dataset.i = i;
+  segs.forEach(seg => {
+    const el = document.createElement('div'); el.className = 'rec';
     el.innerHTML = `<div class="top"><span class="when"></span><span class="meta"></span></div><div class="row"></div>`;
     el.querySelector('.when').textContent = segTitle(seg);
     el.querySelector('.meta').textContent = `${fmtDur(seg.ms / 1000)} · ${seg.items.length.toLocaleString()} records`;
@@ -533,8 +590,6 @@ function setProgress(done, total, extra) {
 
 async function refreshDeviceInfo() {
   lastInfo = await link.info();
-  const k = lastInfo.ringId !== null ? String(lastInfo.ringId) : 'conn' + connCount;
-  if (sess.items.length && sess.key !== k) { log('Device storage was reset since the last download; discarding old session data', 'warn'); sess = newSession(k); renderRecordings(); }
   try { const s = await link.readStatus(); $('iClock').textContent = s.rtcValid ? 'Set ✓' : 'Not set ✗'; } catch { $('iClock').textContent = '–'; }
   renderInfo(); refreshButtons();
 }
@@ -566,45 +621,49 @@ async function onConnect() {
 
 async function onDownload() {
   if (busy) return; setBusy(true);
-  const t0 = performance.now(); let bytesTotal = 0;
+  const t0 = performance.now(); let bytesTotal = 0, start = 0, end = 0, runStart = 0;
   try {
     const info = lastInfo = await link.info(); renderInfo();
-    const key = info.ringId !== null ? String(info.ringId) : 'conn' + connCount;
-    let start;
-    if (sess.items.length && sess.key === key && sess.next >= info.readSeq && sess.next <= info.writeSeq) {
-      start = sess.next; log(`Resuming from record ${start}`);
-    } else { sess = newSession(key); start = info.readSeq; sess.startSeq = start; sess.next = start; renderRecordings(); }
-    const end = info.writeSeq, total = end - start;
-    log(`Downloading records ${start}…${end} (${total.toLocaleString()} records, ${fmtBytes(total * REC_SIZE)})`);
+    const R = ringOf(keyFor(info));
+    if (R.meta && R.meta.next >= info.readSeq && R.meta.next <= info.writeSeq) {
+      start = R.meta.next; if (start > info.readSeq) log(`Resuming from record ${start}`);
+    } else { start = info.readSeq; R.meta = { ring: keyFor(info), startSeq: start, next: start }; }
+    runStart = start; end = info.writeSeq;
+    log(`Downloading records ${start}…${end} (${(end - start).toLocaleString()} records, ${fmtBytes((end - start) * REC_SIZE)})`);
     let lastUi = 0;
     while (start < end) {
-      const want = Math.min(CHUNK_RECORDS, end - start), base = start - sess.startSeq;
+      const want = Math.min(CHUNK_RECORDS, end - start), base = start - runStart;
       let got = 0;
       const res = await link.readChunk(start, want, n => {
         got += n; const now = performance.now();
         if (now - lastUi > 120) { lastUi = now;
-          const done = base + got / REC_SIZE, el = (now - t0) / 1000, sp = (bytesTotal + got) / el;
-          setProgress(done, end - sess.startSeq, `${Math.floor(done).toLocaleString()} / ${(end - sess.startSeq).toLocaleString()} records · ${fmtBytes(sp)}/s`); }
+          const done = base + got / REC_SIZE, sp = (bytesTotal + got) / ((now - t0) / 1000);
+          setProgress(done, end - runStart, `${Math.floor(done).toLocaleString()} / ${(end - runStart).toLocaleString()} records · ${fmtBytes(sp)}/s`); }
       });
       bytesTotal += res.data.length;
       const n = res.data.length / REC_SIZE;
-      if (n > 0) { ingest(start, res.data); start += n; sess.next = start; renderRecordings(); }
+      if (n > 0) {
+        ingest(R, start, res.data); start += n; R.meta.next = start;
+        try { await DB.saveChunk(R.meta, start - n, res.data); }
+        catch (e) { if (!persistFailed) log('Could not save to browser storage: ' + e.message + ' (data is kept in memory only; freeing the Omi is disabled)', 'warn'); persistFailed = true; }
+        renderRecordings(); updateStoreInfo();
+      }
       if (res.status !== 0) { log(`Transfer ended early (status ${res.status}); you can resume`, 'warn'); break; }
       if (n === 0) { log('Device returned no data; stopping', 'warn'); break; }
     }
     const secs = (performance.now() - t0) / 1000;
-    setProgress(start - sess.startSeq, end - sess.startSeq,
-      start >= end ? `Done: ${(end - sess.startSeq).toLocaleString()} records in ${secs.toFixed(1)}s (${fmtBytes(bytesTotal / Math.max(secs, .001))}/s). Nothing was erased from the Omi.`
+    setProgress(start - runStart, end - runStart,
+      start >= end ? `Done: ${(end - runStart).toLocaleString()} records in ${secs.toFixed(1)}s (${fmtBytes(bytesTotal / Math.max(secs, .001))}/s). Saved in this browser; nothing was erased from the Omi.`
                    : `Stopped at record ${start.toLocaleString()} of ${end.toLocaleString()}. Press Download to resume.`);
     log(start >= end ? 'Download complete' : 'Download incomplete', start >= end ? '' : 'warn');
   } catch (e) {
-    if (e.cancelled) { log('Cancelled', 'warn'); setProgress(sess.next - sess.startSeq, (lastInfo.writeSeq - sess.startSeq), 'Cancelled. Press Download to resume.'); }
-    else { log(e.message, 'err'); $('progText').textContent = 'Error: ' + e.message + ' (press Download to resume)'; }
+    if (e.cancelled) { log('Cancelled', 'warn'); setProgress(start - runStart, end - runStart, 'Cancelled. Progress is saved; press Download to resume.'); }
+    else { log(e.message, 'err'); $('progText').textContent = 'Error: ' + e.message + ' (progress is saved; press Download to resume)'; }
   } finally { setBusy(false); renderRecordings(); }
 }
 
 async function saveAllWav() {
-  const segs = segment(sess.items, Math.max(1, +$('gapSec').value || 30));
+  const segs = allSegments();
   let dir = null;
   if (window.showDirectoryPicker) { try { dir = await window.showDirectoryPicker({ mode: 'readwrite' }); } catch { return; } }
   setBusy(true);
@@ -621,14 +680,17 @@ async function saveAllWav() {
 }
 
 async function freeSpace() {
-  if (!confirm(`Permanently free ${(sess.next - sess.startSeq).toLocaleString()} downloaded records on the Omi?\n\nThey will be removed from the device and the Omi phone app will not be able to sync them.`)) return;
+  const R0 = lastInfo && rings.get(keyFor(lastInfo));
+  if (!R0 || !R0.meta) return;
+  if (!confirm(`Permanently free ${(R0.meta.next - lastInfo.readSeq).toLocaleString()} downloaded records on the Omi?\n\nThey will be removed from the device (the Omi phone app will not be able to sync them). The copy kept in this browser becomes the only one, so save your files first.`)) return;
   setBusy(true);
   try {
-    const info = await link.info();
-    if (sess.startSeq !== info.readSeq) throw new Error('Device state changed since the download; refresh and download again first.');
-    await link.advance(info, sess.next);
-    log(`Freed records up to ${sess.next}`); sess = newSession(null); $('chkSaved').checked = false;
-    $('progText').textContent = 'Device storage freed.';
+    const info = await link.info(), R = rings.get(keyFor(info));
+    if (!R || !R.meta || R.meta.startSeq > info.readSeq || R.meta.next < info.writeSeq || persistFailed)
+      throw new Error('The downloaded data no longer matches the device. Refresh and download again first.');
+    await link.advance(info, R.meta.next);
+    log(`Freed records up to ${R.meta.next} on the Omi`); $('chkSaved').checked = false;
+    $('progText').textContent = 'Device storage freed. Your recordings remain in this browser.';
     await refreshDeviceInfo(); renderRecordings();
   } catch (e) { log(e.message, 'err'); alert(e.message); } finally { setBusy(false); }
 }
@@ -639,14 +701,19 @@ $('btnDisconnect').onclick = () => link.disconnect();
 $('btnInfo').onclick = async () => { setBusy(true); try { await refreshDeviceInfo(); } catch (e) { log(e.message, 'err'); } finally { setBusy(false); } };
 $('btnDownload').onclick = onDownload;
 $('btnCancel').onclick = () => link.cancel();
-$('btnReset').onclick = () => { if (confirm('Discard the audio downloaded into this page? (It is still on the Omi.)')) { sess = newSession(sess.key); setProgress(0, 0, ''); renderRecordings(); refreshButtons(); } };
+$('btnReset').onclick = async () => {
+  if (!confirm('Delete all recordings stored in this browser?\n\nAudio you have not freed on the Omi can be downloaded again. If you already freed it on the Omi, this is the only copy.')) return;
+  try { await DB.clear(); } catch (e) { log(e.message, 'err'); }
+  rings.clear(); setProgress(0, 0, ''); renderRecordings(); refreshButtons(); updateStoreInfo(); };
 $('btnSaveAll').onclick = saveAllWav;
-$('btnRaw').onclick = () => save(new Blob(sess.chunks, { type: 'application/octet-stream' }), `omi_raw_records_${sess.startSeq}-${sess.next}.bin`);
+$('btnRaw').onclick = () => { for (const [k, R] of rings) { if (!R.chunks.length) continue;
+  const seqs = R.chunks.map(c => c.seq); save(new Blob(R.chunks.slice().sort((a, b) => a.seq - b.seq).map(c => c.data), { type: 'application/octet-stream' }),
+    `omi_raw_records_${k.slice(-6)}_${Math.min(...seqs)}-${R.meta ? R.meta.next : ''}.bin`); } };
 $('btnFree').onclick = freeSpace;
 $('chkSaved').onchange = refreshButtons;
 $('gapSec').onchange = renderRecordings;
 link.onDisconnect = () => { $('connPill').textContent = 'Not connected'; $('connPill').className = 'pill bad'; lastInfo = null; setBusy(false); };
-window.addEventListener('beforeunload', e => { if (sess.items.length) { e.preventDefault(); e.returnValue = ''; } });
+
 
 if (!window.isSecureContext || !navigator.bluetooth) {
   const b = $('unsupported'); b.style.display = 'block';
@@ -656,6 +723,7 @@ if (!window.isSecureContext || !navigator.bluetooth) {
   $('btnConnect').disabled = true;
 }
 refreshButtons();
+restoreLibrary();
 </script>
 </body>
 </html>

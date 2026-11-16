@@ -18,7 +18,13 @@ Everything happens locally in your browser.
    frames wrapped in Ogg, no re-encoding). **Save raw dump** writes the untouched 444-byte ring records.
 
 Downloading is **non-destructive**: the Omi keeps the audio until you press *Free space on Omi* (section 5).
-Closing the page loses what was downloaded into it, but the audio is still on the device, so just download again.
+That marks the downloaded audio as reusable: the firmware may overwrite it and it can no longer be read over
+Bluetooth (so the Omi phone app can't sync it either). It's only enabled after a complete download that was
+saved to browser storage.
+
+Downloads are saved in the browser's IndexedDB as they arrive, each chunk flushed to disk before the next is
+requested. Recordings survive reloads, and an interrupted download resumes where it stopped. Browser storage can
+be cleared by the user or the browser, so export WAV/.opus files for anything you want to keep.
 
 ## Protocol notes
 
@@ -41,7 +47,7 @@ DATA notifications are not aligned to record boundaries, so the app reassembles 
 ## Notes and limits
 
 * Offline storage needs firmware with SD-card storage (the 3.0.20+ ring buffer); INFO also needs an ATT MTU ≥ 44.
-* The whole download is held in memory (roughly the size of the unread data); fine for hours of audio.
+* Stored recordings are also held in memory while the page is open (roughly the size of the unread data); fine for hours of audio.
 * Not tested against real hardware. It was verified against a mock device that follows the firmware's storage
   protocol, using real Opus frames. If something misbehaves on your Omi, the Activity log in the page shows
   what the device replied.
