@@ -45,6 +45,17 @@ The page remembers the Omi you connected to and, after a reload, reconnects to i
 "Details → Forget this device" clears it. If the settings card says your permission predates settings support, forget the
 device and connect once more.
 
+## Install as an app
+
+The page is an installable web app (manifest, icons and a service worker). In Chrome or Edge, use the **Install app**
+button in the page header (or the install icon in the address bar) to get a standalone window and launcher/desktop icon.
+Web Bluetooth, remembered device and the library work the same in the installed app.
+
+The service worker is network-first: it always revalidates, so a new deployment appears immediately, and it falls back
+to the cached copy when offline (you can open the app and play/export downloaded recordings without a connection; talking to
+the Omi of course needs Bluetooth only, not internet). `version.json` is never cached, so the update check stays accurate.
+The icons are rendered from `icons/icon.svg` and `icons/icon-maskable.svg`.
+
 ## Versions and update check
 
 The version is the commit's date and time in UTC, `yymmddhhmm` (shown in the header and footer). Every
@@ -56,7 +67,7 @@ the running page. Always commit with:
 tools/commit.sh -m "message"
 ```
 
-It stamps `index.html` and `version.json` with the current UTC minute and sets the commit's author/committer date to that
+It stamps `index.html`, `sw.js` and `version.json` with the current UTC minute and sets the commit's author/committer date to that
 same minute, so `TZ=UTC git log -1 --format=%ad --date=format:%y%m%d%H%M` equals the version inside the commit.
 (`tools/stamp-version.sh` only does the stamping.) Commits made another way, such as through the GitHub web editor, keep the
 old version and won't trigger the update banner.

@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Omi Audio Retriever</title>
+<meta name="description" content="Download stored audio, capture live audio and change settings on your Omi wearable over Bluetooth.">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1e23" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #667085; --line: #e3e6ea;
@@ -91,6 +97,7 @@
 <header class="top"><div class="wrap">
   <div class="brand">Omi Audio Retriever<span class="ver" id="verLabel"></span></div>
   <div class="topstatus">
+    <button class="small primary" id="btnInstall" hidden title="Install this app on your device">Install app</button>
     <span class="pill warn" id="recPill" hidden>Recording paused</span>
     <span class="pill" id="connPill">Not connected</span>
   </div>
@@ -220,7 +227,7 @@
 'use strict';
 
 // yymmddhhmm (UTC) of the commit this file was committed in. Stamped by tools/stamp-version.sh; do not edit by hand.
-const VERSION = '2611160935';
+const VERSION = '2611160943';
 
 /* =====================================================================
  * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
@@ -1119,6 +1126,19 @@ renderConn('disconnected');
 restoreLibrary();
 if (navigator.bluetooth) (async () => { const d = await findRemembered(); if (d) { rememberedDevice = d; renderConn(); connectTo(d, true); } })();
 setTimeout(() => checkUpdate(false), 1500);
+
+/* ---------- installable app (PWA) ---------- */
+let deferredInstall = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; $('btnInstall').hidden = isStandalone(); });
+window.addEventListener('appinstalled', () => { deferredInstall = null; $('btnInstall').hidden = true; log('App installed'); });
+$('btnInstall').onclick = async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  const r = await deferredInstall.userChoice; deferredInstall = null; $('btnInstall').hidden = true; log('Install prompt: ' + r.outcome);
+};
+if ('serviceWorker' in navigator && location.protocol !== 'file:')
+  navigator.serviceWorker.register('sw.js').catch(e => log('Service worker not registered: ' + e.message, 'warn'));
 </script>
 </body>
 </html>
