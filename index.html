@@ -228,7 +228,7 @@
 'use strict';
 
 // yymmddhhmm (UTC) of the commit this file was committed in. Stamped by tools/stamp-version.sh; do not edit by hand.
-const VERSION = '2611160954';
+const VERSION = '2611161004';
 
 /* =====================================================================
  * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
@@ -901,7 +901,9 @@ async function loadSettings() {
   let first = null, features = null;
   try { features = (await link.readChar(UUID.featSvc, UUID.featChar)).getUint32(0, true); log('Firmware feature flags: 0x' + features.toString(16)); }
   catch { log('Firmware feature flags unavailable; probing settings directly', 'warn'); }
-  const why = `Not supported by this Omi's firmware${devInfo.fw ? ' (v' + devInfo.fw + ')' : ''}. Update the firmware to use it.`;
+  const why = `Not supported by this Omi's firmware${devInfo.fw ? ' (v' + devInfo.fw + ')' : ''}. ` + (devInfo.fw === '3.0.21'
+    ? 'A newer firmware adds it, but Based Hardware documents that some 3.0.21 units can fail over-the-air updates: check their guidance before updating.'
+    : 'Update the firmware to use it.');
   for (const [k, u] of [['led', UUID.setLed], ['gain', UUID.setGain], ['mute', UUID.setMute]]) {
     if (features != null && !(features & FEATURE_BIT[k])) { settingsUnsupported[k] = why; continue; }
     try { settings[k] = await link.getSetting(u); settingsOk[k] = true; }

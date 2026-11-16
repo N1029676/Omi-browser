@@ -39,7 +39,7 @@ Once connected, the **Device settings** card reads and writes the Omi's settings
 
 Which of these exist depends on the Omi's firmware. The page reads the firmware's feature flags and shows
 "Not supported by this Omi's firmware" for anything it lacks (for example, remote recording on/off only exists in newer
-firmware; older firmware only offers LED brightness and mic gain). The Activity log lists the characteristics the
+firmware; older firmware only offers LED brightness and mic gain). Caution: Based Hardware's firmware notes say some factory 3.0.21 units can fail over-the-air updates (a shared-bus SD read problem in the stock bootloader) and recommend a wired reflash or return, so check with them before updating a 3.0.21 unit. The Activity log lists the characteristics the
 settings service actually exposes.
 
 ## Remembered device
