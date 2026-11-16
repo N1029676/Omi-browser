@@ -29,6 +29,38 @@ Downloads and live recordings are saved in the browser's IndexedDB as they arriv
 requested. Recordings survive reloads, and an interrupted download resumes where it stopped. Browser storage can
 be cleared by the user or the browser, so export WAV/.opus files for anything you want to keep.
 
+## Device settings
+
+Once connected, the **Device settings** card reads and writes the Omi's settings service:
+
+* **Recording** on/off (the Omi's capture mute: while off it captures nothing, stored or live; the setting is kept by the device across reconnects and reboots)
+* **LED brightness** 0–100 %
+* **Microphone gain** 0–8
+
+## Remembered device
+
+The page remembers the Omi you connected to and, after a reload, reconnects to it without showing the device picker
+(and reconnects by itself if the connection drops and the Omi comes back into range). This uses
+`navigator.bluetooth.getDevices()`, available in recent Chrome/Edge; other browsers just show the normal picker.
+"Details → Forget this device" clears it. If the settings card says your permission predates settings support, forget the
+device and connect once more.
+
+## Versions and update check
+
+The version is the commit's date and time in UTC, `yymmddhhmm` (shown in the header and footer). Every
+`index.html` contains it, and `version.json` next to it holds the same value. The page compares the two on load,
+every 15 minutes and when the tab regains focus, and shows a "Reload to update" banner when `version.json` is newer than
+the running page. Always commit with:
+
+```
+tools/commit.sh -m "message"
+```
+
+It stamps `index.html` and `version.json` with the current UTC minute and sets the commit's author/committer date to that
+same minute, so `TZ=UTC git log -1 --format=%ad --date=format:%y%m%d%H%M` equals the version inside the commit.
+(`tools/stamp-version.sh` only does the stamping.) Commits made another way, such as through the GitHub web editor, keep the
+old version and won't trigger the update banner.
+
 ## Protocol notes
 
 The public [protocol page](https://docs.omi.me/doc/developer/Protocol) covers live streaming only. Offline storage is
@@ -43,6 +75,7 @@ implemented in the firmware (`omi/firmware/omi/src/lib/core/storage.c`, `sd_card
 | Notifications | `0x01` ACK[status] · `0x02` INFO(41 B) · `0x03` DATA · `0x04` DONE[status][next_seq] · `0x05` READ_BEGIN[seq][count] |
 | Ring record (444 B) | `[timestamp u32 BE][440 B payload]`; payload is `[len u8][Opus frame]…` zero-padded |
 | Timestamp | epoch seconds; bit 31 set = seconds since boot (device clock not set) |
+| Settings service `19B10010-…` | `…11` LED brightness u8 0–100 · `…12` mic gain u8 0–8 · `…13` charging u8 · `…15` capture mute u8 (1 = paused) |
 | Live audio characteristic | `19B10001-…` (notify): subscribing starts the stream. Packet = `[packet# u16 LE][fragment# u8][bytes]`; an Opus frame starts at fragment 0 and may span several packets. A missing packet drops that frame. |
 | Audio | Opus, 16 kHz mono (codec char `19B10002-…`: 20 = 10 ms frames, 21 = 20 ms frames) |
 

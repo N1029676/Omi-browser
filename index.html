@@ -8,141 +8,201 @@
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #667085; --line: #e3e6ea;
     --accent: #3b5bdb; --accent-text: #ffffff; --danger: #c92a2a; --ok: #2b8a3e; --warn: #b36b00;
-    --bar: #e3e6ea; --code: #f0f2f5;
+    --bar: #d5d9df; --code: #f0f2f5; --info-bg: #edf2ff;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #121417; --card: #1b1e23; --text: #e8eaed; --muted: #9aa3ad; --line: #2c3036;
       --accent: #6c8cff; --accent-text: #0b0e14; --danger: #ff6b6b; --ok: #51cf66; --warn: #ffa94d;
-      --bar: #2c3036; --code: #14171b;
+      --bar: #3a3f47; --code: #14171b; --info-bg: #1d2540;
     }
   }
   * { box-sizing: border-box; }
+  [hidden], .hidden { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
-  h1 { font-size: 22px; margin: 0 0 2px; }
-  h2 { font-size: 15px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  .sub { color: var(--muted); margin: 0 0 18px; }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .top { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); }
+  .top .wrap { max-width: 860px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .brand { font-weight: 700; font-size: 16px; }
+  .ver { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; font-variant-numeric: tabular-nums; }
+  .topstatus { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  main { max-width: 860px; margin: 0 auto; padding: 14px 16px 50px; }
+  h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .card-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+  .summary { color: var(--text); font-size: 15px; margin-top: 2px; }
+  .body { margin-top: 12px; }
   button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
            padding: 8px 14px; border-radius: 8px; cursor: pointer; }
   button:hover:not(:disabled) { border-color: var(--accent); }
+  button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
   button.danger { color: var(--danger); border-color: var(--danger); }
   button.small { padding: 4px 10px; font-size: 13px; }
+  button.ghost { border-color: transparent; color: var(--muted); background: transparent; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
-  .stat { background: var(--code); border-radius: 8px; padding: 8px 10px; }
-  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 10px 0; }
+  .stat { background: var(--code); border-radius: 8px; padding: 6px 10px; }
+  .stat b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
   .stat span { color: var(--muted); font-size: 12px; }
-  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
   .pill.ok { color: var(--ok); border-color: var(--ok); }
   .pill.bad { color: var(--danger); border-color: var(--danger); }
-  .bar { height: 10px; background: var(--bar); border-radius: 999px; overflow: hidden; margin: 10px 0 4px; }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .bar { height: 8px; background: var(--bar); border-radius: 999px; overflow: hidden; margin: 10px 0 4px; }
   .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
-  .note { color: var(--muted); font-size: 13px; }
-  .banner { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; display: none; }
+  .note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .banner { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; display: none; }
+  .banner.info { display: flex; border-color: var(--accent); color: var(--text); background: var(--info-bg); align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .banner.info[hidden] { display: none !important; }
   .rec { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 6px; }
   .rec:first-child { border-top: 0; }
-  .rec .top { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .rec .top2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
   .rec .when { font-weight: 600; }
   .rec .meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .rec audio { width: 100%; height: 36px; }
   .gap { display: flex; align-items: center; gap: 8px; }
-  input[type=number] { width: 70px; font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line);
-                       background: var(--card); color: var(--text); }
-  #log { background: var(--code); border-radius: 8px; padding: 10px; max-height: 200px; overflow: auto;
-         font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; margin: 0; }
+  input[type=number] { width: 70px; font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .card-head + .setting { border-top: 0; }
+  .setting .lbl { min-width: 0; } .setting .lbl b { display: block; }
+  .setting .ctl { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: flex-end; max-width: 380px; }
+  .setting output { width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .switch { position: relative; width: 46px; height: 26px; display: inline-block; flex: none; }
+  .switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+  .switch span { position: absolute; inset: 0; background: var(--bar); border-radius: 999px; transition: .15s; }
+  .switch span::before { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: .15s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::before { transform: translateX(20px); }
+  .switch input:disabled { cursor: not-allowed; } .switch input:disabled + span { opacity: .5; }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #log { background: var(--code); border-radius: 8px; padding: 10px; max-height: 220px; overflow: auto; margin-top: 10px;
+         font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
   #log .err { color: var(--danger); } #log .warn { color: var(--warn); }
-  details summary { cursor: pointer; color: var(--muted); }
-  .hidden { display: none !important; }
+  details > summary { cursor: pointer; color: var(--muted); }
+  details.sub { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+  footer a { color: inherit; }
 </style>
 </head>
 <body>
-<main>
-  <h1>Omi Audio Retriever</h1>
-  <p class="sub">Download the audio your Omi recorded offline (stored on its SD card) over Bluetooth, straight from the browser. Nothing leaves your computer.</p>
+<header class="top"><div class="wrap">
+  <div class="brand">Omi Audio Retriever<span class="ver" id="verLabel"></span></div>
+  <div class="topstatus">
+    <span class="pill warn" id="recPill" hidden>Recording paused</span>
+    <span class="pill" id="connPill">Not connected</span>
+  </div>
+</div></header>
 
+<main>
+  <div class="banner info" id="updateBanner" hidden role="status">
+    <span>A new version (<b id="newVer"></b>) is available.</span>
+    <button class="small primary" id="btnUpdate">Reload to update</button>
+  </div>
   <div class="banner" id="unsupported"></div>
 
-  <section>
-    <h2>1 · Connect</h2>
-    <div class="row">
-      <button class="primary" id="btnConnect">Connect to Omi</button>
-      <button id="btnDisconnect" class="hidden">Disconnect</button>
-      <span class="pill" id="connPill">Not connected</span>
+  <!-- Connection: collapses to a one-line summary once connected -->
+  <section id="secConn">
+    <div class="card-head">
+      <div>
+        <h2>Device</h2>
+        <div class="summary" id="connSummary">Connect your Omi to get started</div>
+      </div>
+      <div class="row">
+        <button class="primary" id="btnConnect">Connect to Omi</button>
+        <button class="primary" id="btnReconnect" hidden>Reconnect</button>
+        <button id="btnPick" hidden>Other device…</button>
+        <button id="btnDisconnect" hidden>Disconnect</button>
+        <button class="small ghost" id="btnConnToggle" hidden aria-expanded="false" aria-controls="connBody">Details ▾</button>
+      </div>
     </div>
-    <label class="note" style="display:block;margin-top:8px">
-      <input type="checkbox" id="chkAll"> Show all Bluetooth devices (use if your Omi isn't listed)
-    </label>
-    <p class="note" style="margin-bottom:0">Only one device can talk to the Omi at a time. Close the Omi phone app (or turn off the phone's Bluetooth) first.</p>
-    <div class="grid" id="devGrid" hidden>
-      <div class="stat"><b id="sName">–</b><span>Device</span></div>
-      <div class="stat"><b id="sFw">–</b><span>Firmware</span></div>
-      <div class="stat"><b id="sBat">–</b><span>Battery</span></div>
-      <div class="stat"><b id="sCodec">–</b><span>Audio codec</span></div>
+    <div class="body" id="connBody">
+      <div class="grid" id="devGrid" hidden>
+        <div class="stat"><b id="sName">–</b><span>Device</span></div>
+        <div class="stat"><b id="sFw">–</b><span>Firmware</span></div>
+        <div class="stat"><b id="sBat">–</b><span>Battery</span></div>
+        <div class="stat"><b id="sCodec">–</b><span>Audio codec</span></div>
+      </div>
+      <label class="note" style="display:block;margin-top:0"><input type="checkbox" id="chkAll"> Show all Bluetooth devices (use if your Omi isn't listed)</label>
+      <p class="note">Only one device can talk to the Omi at a time. Close the Omi phone app (or turn off the phone's Bluetooth) first.</p>
+      <p class="note" id="rememberNote" hidden>This page remembers your Omi and reconnects to it automatically.
+        <button class="small ghost" id="btnForget">Forget this device</button></p>
     </div>
   </section>
 
-  <section>
-    <h2>2 · Stored audio on device</h2>
-    <div class="row"><button id="btnInfo" disabled>Refresh</button></div>
-    <div class="grid" id="infoGrid" hidden>
-      <div class="stat"><b id="iUnread">–</b><span>Unread audio (records)</span></div>
-      <div class="stat"><b id="iSize">–</b><span>Unread size</span></div>
-      <div class="stat"><b id="iEst">–</b><span>Approx. duration</span></div>
-      <div class="stat"><b id="iCap">–</b><span>Card capacity used</span></div>
-      <div class="stat"><b id="iDrop">–</b><span>Overwritten (dropped) records</span></div>
-      <div class="stat"><b id="iClock">–</b><span>Device clock</span></div>
-    </div>
-    <p class="note" id="infoNote" style="margin-bottom:0"></p>
-  </section>
+  <div id="connectedOnly" hidden>
+    <section id="secStored">
+      <div class="card-head"><h2>Stored on device</h2><button class="small" id="btnInfo" disabled>Refresh</button></div>
+      <div class="grid" id="infoGrid" hidden>
+        <div class="stat"><b id="iUnread">–</b><span>Unread (records)</span></div>
+        <div class="stat"><b id="iSize">–</b><span>Size</span></div>
+        <div class="stat"><b id="iEst">–</b><span>Approx. duration</span></div>
+        <div class="stat"><b id="iCap">–</b><span>Card used</span></div>
+        <div class="stat"><b id="iDrop">–</b><span>Overwritten</span></div>
+        <div class="stat"><b id="iClock">–</b><span>Device clock</span></div>
+      </div>
+      <p class="note" id="infoNote"></p>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="btnDownload" disabled>Download stored audio</button>
+        <button id="btnCancel" class="hidden">Cancel</button>
+      </div>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="note" id="progText" style="margin-top:0">Reading does <b>not</b> erase anything on the Omi. Downloads are saved in this browser, so you can reload the page or resume after a dropped connection.</div>
+      <details class="sub" id="freeBox">
+        <summary>Free space on the Omi…</summary>
+        <p class="note">Once everything is downloaded, you can tell the Omi it may reuse the space taken by that audio.
+          <b>This removes the audio from the device</b>: the Omi phone app can no longer sync it and the firmware will overwrite it.
+          Your copy in this browser then becomes the only one. Available only after a complete download that was saved to browser storage.</p>
+        <div class="row" style="margin-top:8px">
+          <label class="note" style="margin:0"><input type="checkbox" id="chkSaved"> I have saved my recordings as files</label>
+          <button class="danger" id="btnFree" disabled>Free space on Omi</button>
+        </div>
+      </details>
+    </section>
+
+    <section id="secLive">
+      <div class="card-head"><h2>Live capture</h2><span class="pill" id="livePill">Idle</span></div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="btnLive" disabled>● Start live capture</button>
+        <label class="note" style="margin:0"><input type="checkbox" id="chkListen" checked> Listen while recording</label>
+      </div>
+      <div class="bar"><i id="liveBar"></i></div>
+      <div class="note" id="liveStats" style="margin-top:0">Streams audio from the Omi in real time and saves it as a recording below. The Omi phone app must not be connected.</div>
+      <p class="note" id="liveMuted" hidden style="color:var(--warn)">The Omi's recording is paused (see Settings), so nothing will be captured.</p>
+    </section>
+
+    <section id="secSettings">
+      <div class="card-head"><h2>Device settings</h2><span class="note" id="setNote" style="margin:0"></span></div>
+      <div class="setting">
+        <div class="lbl"><b>Recording</b><span class="note" id="recHint">Turn off to stop the Omi capturing audio (stored and live).</span></div>
+        <label class="switch"><input type="checkbox" id="setRec" role="switch" aria-label="Recording" disabled><span></span></label>
+      </div>
+      <div class="setting">
+        <div class="lbl"><b>LED brightness</b></div>
+        <div class="ctl"><input type="range" id="setLed" min="0" max="100" step="5" aria-label="LED brightness" disabled><output id="setLedVal">–</output></div>
+      </div>
+      <div class="setting">
+        <div class="lbl"><b>Microphone gain</b><span class="note">0 = lowest, 8 = highest</span></div>
+        <div class="ctl"><input type="range" id="setGain" min="0" max="8" step="1" aria-label="Microphone gain" disabled><output id="setGainVal">–</output></div>
+      </div>
+    </section>
+  </div>
 
   <section>
-    <h2>3 · Download</h2>
-    <div class="row">
-      <button class="primary" id="btnDownload" disabled>Download stored audio</button>
-      <button id="btnCancel" class="hidden">Cancel</button>
-      <button id="btnReset" disabled>Delete stored recordings</button>
-    </div>
-    <div class="bar"><i id="bar"></i></div>
-    <div class="note" id="progText">Reading does <b>not</b> erase anything on the Omi: your audio stays on the device until you explicitly free it below. Downloads are also saved in this browser, so you can reload the page or resume after a dropped connection.</div>
-  </section>
-
-  <section>
-    <h2>4 · Live capture</h2>
-    <div class="row">
-      <button class="primary" id="btnLive" disabled>● Start live capture</button>
-      <label class="note"><input type="checkbox" id="chkListen" checked> Listen while recording</label>
-      <span class="pill" id="livePill">Idle</span>
-    </div>
-    <div class="bar"><i id="liveBar"></i></div>
-    <div class="note" id="liveStats">Streams audio from the Omi in real time and saves it as a recording below (no need to download anything afterwards). Uses the live audio stream, so the Omi phone app must not be connected.</div>
-  </section>
-
-  <section>
-    <h2>5 · Recordings</h2>
-    <div class="row" style="justify-content:space-between">
-      <label class="gap note">Start a new recording after a silence of
-        <input type="number" id="gapSec" min="1" max="3600" value="30"> s</label>
+    <div class="card-head">
+      <h2>Recordings</h2>
       <span class="row">
         <button id="btnSaveAll" class="small" disabled>Save all as WAV…</button>
-        <button id="btnRaw" class="small" disabled>Save raw dump</button>
+        <button id="btnRaw" class="small" disabled>Raw dump</button>
+        <button id="btnReset" class="small danger" disabled>Delete all</button>
       </span>
     </div>
-    <p class="note" style="margin:8px 0 0">Recordings are kept in this browser's storage (they survive reloads, but are lost if you clear site data), so save them as files too. <span id="storeInfo"></span></p>
+    <div class="gap note" style="margin-top:8px">Start a new recording after a silence of
+      <input type="number" id="gapSec" min="1" max="3600" value="30"> s</div>
     <div id="recs"><p class="note">Nothing downloaded yet.</p></div>
-  </section>
-
-  <section>
-    <h2>6 · Free device storage (optional)</h2>
-    <p class="note" style="margin-top:0">Once everything is downloaded, you can tell the Omi it may reuse the space taken by that audio. <b>This removes the audio from the device</b>: the Omi phone app can no longer sync it and the firmware will overwrite it. Your copy in this browser then becomes the only one. Available only after a complete download that was saved to browser storage.</p>
-    <div class="row">
-      <label class="note"><input type="checkbox" id="chkSaved"> I have saved my recordings as files</label>
-      <button class="danger" id="btnFree" disabled>Free space on Omi</button>
-    </div>
+    <p class="note">Recordings are kept in this browser's storage (they survive reloads, but are lost if you clear site data), so save them as files too. <span id="storeInfo"></span></p>
   </section>
 
   <section>
@@ -151,10 +211,16 @@
       <pre id="log"></pre>
     </details>
   </section>
+
+  <footer>Omi Audio Retriever <span id="verFooter"></span> · <a href="#" id="lnkCheck">Check for updates</a> <span id="updStatus"></span></footer>
 </main>
+
 
 <script>
 'use strict';
+
+// yymmddhhmm (UTC) of the commit this file was committed in. Stamped by tools/stamp-version.sh; do not edit by hand.
+const VERSION = '2611160935';
 
 /* =====================================================================
  * Omi BLE offline-storage protocol (from Omi firmware: storage.c, sd_card.h)
@@ -172,6 +238,11 @@
 const UUID = {
   audioSvc: '19b10000-e8f2-537e-4f6c-d104768a1214',
   audioData:'19b10001-e8f2-537e-4f6c-d104768a1214',
+  setSvc:   '19b10010-e8f2-537e-4f6c-d104768a1214',   // settings service
+  setLed:   '19b10011-e8f2-537e-4f6c-d104768a1214',   // LED brightness (dim ratio) u8 0-100, R/W
+  setGain:  '19b10012-e8f2-537e-4f6c-d104768a1214',   // microphone gain u8 0-8, R/W
+  setCharging: '19b10013-e8f2-537e-4f6c-d104768a1214', // charging u8 0/1, R/N
+  setMute:  '19b10015-e8f2-537e-4f6c-d104768a1214',   // capture mute u8: 1 = paused, 0 = recording, R/W
   codec:    '19b10002-e8f2-537e-4f6c-d104768a1214',
   storSvc:  '30295780-4301-eabd-2904-2849adfeae43',
   storCmd:  '30295781-4301-eabd-2904-2849adfeae43',
@@ -318,23 +389,40 @@ async function decodeToPcm16(frames, onProgress) {
  * BLE link
  * ===================================================================== */
 class OmiLink {
-  constructor() { this.listeners = new Set(); this.tx = null; this.device = null; }
+  constructor() { this.listeners = new Set(); this.tx = null; this.device = null; this._q = Promise.resolve(); this._bound = new WeakSet(); this.userDisc = false; }
 
-  async connect(acceptAll) {
-    const optionalServices = [UUID.audioSvc, UUID.storSvc, 'battery_service', 'device_information'];
-    const opts = acceptAll ? { acceptAllDevices: true, optionalServices }
-      : { filters: [{ namePrefix: 'Omi' }, { services: [UUID.audioSvc] }], optionalServices };
-    this.device = await navigator.bluetooth.requestDevice(opts);
-    this.device.addEventListener('gattserverdisconnected', () => {
-      log('Bluetooth disconnected', 'warn');
-      if (this.tx) this.tx.abort(new Error('Bluetooth disconnected'));
-      this.onDisconnect && this.onDisconnect();
-    });
-    log(`Connecting to ${this.device.name || 'device'}…`);
-    this.server = await this.device.gatt.connect();
+  /** Web Bluetooth allows one GATT operation at a time: queue every one-shot operation. */
+  serial(fn) { const run = () => fn(); const p = this._q.then(run, run); this._q = p.catch(() => {}); return p; }
+
+  /** Show the browser's device picker. */
+  choose(acceptAll) {
+    const optionalServices = [UUID.audioSvc, UUID.storSvc, UUID.setSvc, 'battery_service', 'device_information'];
+    return navigator.bluetooth.requestDevice(acceptAll ? { acceptAllDevices: true, optionalServices }
+      : { filters: [{ namePrefix: 'Omi' }, { services: [UUID.audioSvc] }], optionalServices });
+  }
+
+  /** Connect to a chosen (or remembered) device and set up the storage channel. */
+  async open(device, timeoutMs = 15000) {
+    this.device = device; this.settingsSvc = null; this.userDisc = false; this._q = Promise.resolve();
+    if (!this._bound.has(device)) {
+      this._bound.add(device);
+      device.addEventListener('gattserverdisconnected', () => {
+        if (device !== this.device) return;
+        const user = this.userDisc; this.userDisc = false;
+        log(user ? 'Disconnected' : 'Bluetooth connection lost', user ? '' : 'warn');
+        if (this.tx) this.tx.abort(new Error('Bluetooth disconnected'));
+        this.onDisconnect && this.onDisconnect(user);
+      });
+    }
+    log(`Connecting to ${device.name || 'device'}…`);
+    let timer;
+    const timeout = new Promise((_, rej) => { timer = setTimeout(() => {
+      try { device.gatt.disconnect(); } catch {}
+      rej(new Error('Timed out connecting (is the Omi on and in range?)')); }, timeoutMs); });
+    try { this.server = await Promise.race([device.gatt.connect(), timeout]); } finally { clearTimeout(timer); }
     let svc;
     try { svc = await this.server.getPrimaryService(UUID.storSvc); }
-    catch { this.disconnect(); throw new Error('This device has no offline-storage service (needs Omi firmware with SD-card storage).'); }
+    catch { this.disconnect(); const e = new Error('This device has no offline-storage service (needs Omi firmware with SD-card storage).'); e.fatal = true; throw e; }
     this.cmd = await svc.getCharacteristic(UUID.storCmd);
     this.status = await svc.getCharacteristic(UUID.storStat);
     this.cmd.addEventListener('characteristicvaluechanged', e => {
@@ -344,11 +432,27 @@ class OmiLink {
     await this.cmd.startNotifications();
   }
 
-  disconnect() { try { this.device && this.device.gatt.connected && this.device.gatt.disconnect(); } catch {} }
+  disconnect() { this.userDisc = true; try { this.device && this.device.gatt.connected && this.device.gatt.disconnect(); } catch {} }
   get connected() { return !!(this.device && this.device.gatt.connected); }
 
   write(bytes) {
-    return this.cmd.writeValueWithResponse ? this.cmd.writeValueWithResponse(bytes) : this.cmd.writeValue(bytes);
+    return this.serial(() => this.cmd.writeValueWithResponse ? this.cmd.writeValueWithResponse(bytes) : this.cmd.writeValue(bytes));
+  }
+
+  /** Read a one-byte-or-more characteristic from any service, serialized. */
+  async readChar(svcId, chId) {
+    const svc = await this.serial(() => this.server.getPrimaryService(svcId));
+    const ch = await this.serial(() => svc.getCharacteristic(chId));
+    return this.serial(() => ch.readValue());
+  }
+  async settingChar(uuid) {
+    if (!this.settingsSvc) this.settingsSvc = await this.serial(() => this.server.getPrimaryService(UUID.setSvc));
+    return this.serial(() => this.settingsSvc.getCharacteristic(uuid));
+  }
+  async getSetting(uuid) { const c = await this.settingChar(uuid); return (await this.serial(() => c.readValue())).getUint8(0); }
+  async putSetting(uuid, val) {
+    const c = await this.settingChar(uuid), v = Uint8Array.of(val);
+    await this.serial(() => c.writeValueWithResponse ? c.writeValueWithResponse(v) : c.writeValue(v));
   }
 
   /** Send a command and feed notifications to onMsg until it calls ok()/fail(). Idle timeout guards stalls. */
@@ -372,7 +476,7 @@ class OmiLink {
   }
 
   async readStatus() {
-    const v = await this.status.readValue();
+    const v = await this.serial(() => this.status.readValue());
     const dv = new DataView(v.buffer, v.byteOffset, v.byteLength);
     return { usedBytes: dv.getUint32(0, true), unread: dv.getUint32(4, true), freeBytes: dv.getUint32(8, true), rtcValid: dv.getUint32(12, true) };
   }
@@ -401,11 +505,11 @@ class OmiLink {
 
   /** Subscribe to the live audio characteristic (this is what makes the Omi start streaming). Returns a stop function. */
   async startLive(onPacket) {
-    const svc = await this.server.getPrimaryService(UUID.audioSvc);
-    const ch = await svc.getCharacteristic(UUID.audioData);
+    const svc = await this.serial(() => this.server.getPrimaryService(UUID.audioSvc));
+    const ch = await this.serial(() => svc.getCharacteristic(UUID.audioData));
     const h = e => { const v = e.target.value; onPacket(new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength))); };
     ch.addEventListener('characteristicvaluechanged', h);
-    await ch.startNotifications();
+    await this.serial(() => ch.startNotifications());
     return async () => { ch.removeEventListener('characteristicvaluechanged', h); try { await ch.stopNotifications(); } catch {} };
   }
 
@@ -544,7 +648,9 @@ function refreshButtons() {
   const c = link.connected, have = totalItems() > 0;
   const R = lastInfo && rings.get(keyFor(lastInfo)), m = R && R.meta;
   const resumeAt = m && m.next >= lastInfo.readSeq && m.next <= lastInfo.writeSeq ? m.next : (lastInfo ? lastInfo.readSeq : 0);
-  $('btnConnect').classList.toggle('hidden', c); $('btnDisconnect').classList.toggle('hidden', !c);
+  const sb = busy || settingBusy;
+  $('setRec').disabled = !c || !settingsOk.mute || sb; $('setLed').disabled = !c || !settingsOk.led || sb; $('setGain').disabled = !c || !settingsOk.gain || sb;
+  $('btnReconnect').disabled = connecting; $('btnConnect').disabled = connecting || !navigator.bluetooth; $('btnPick').disabled = connecting;
   const lv = live.on;
   $('btnInfo').disabled = !c || busy || lv;
   $('btnLive').disabled = !c || (busy && !lv); $('btnLive').textContent = lv ? '■ Stop' : '● Start live capture'; $('btnLive').classList.toggle('danger', lv);
@@ -584,7 +690,7 @@ function doRender() {
   box.textContent = '';
   segs.forEach(seg => {
     const el = document.createElement('div'); el.className = 'rec';
-    el.innerHTML = `<div class="top"><span class="when"></span><span class="meta"></span></div><div class="row"></div>`;
+    el.innerHTML = `<div class="top2"><span class="when"></span><span class="meta"></span></div><div class="row"></div>`;
     el.querySelector('.when').textContent = segTitle(seg) + (seg.ring.startsWith('live-') ? '  · live capture' : '');
     el.querySelector('.meta').textContent = `${fmtDur(seg.ms / 1000)} · ${seg.items.length.toLocaleString()} records`;
     const row = el.querySelector('.row');
@@ -618,29 +724,164 @@ async function refreshDeviceInfo() {
   renderInfo(); refreshButtons();
 }
 
-async function onConnect() {
+/* ---------- connection, remembered device, device info ---------- */
+const savedDev = {
+  get() { try { return JSON.parse(localStorage.getItem('omi.device')); } catch { return null; } },
+  set(d) { try { localStorage.setItem('omi.device', JSON.stringify({ id: d.id, name: d.name || 'Omi' })); } catch {} },
+  clear() { try { localStorage.removeItem('omi.device'); } catch {} },
+};
+let connecting = false, rememberedDevice = null, waitCtl = null, connState = 'disconnected', bodyOpen = false;
+const devInfo = { name: '', bat: null, fw: '', codec: '', charging: false };
+const canRemember = () => !!(navigator.bluetooth && navigator.bluetooth.getDevices);
+const CODEC_NAMES = { 20: 'Opus (10 ms)', 21: 'Opus (20 ms)', 1: 'PCM 8k', 0: 'PCM 16k', 10: 'µ-law 16k', 11: 'µ-law 8k' };
+
+/** Single place that decides what the connection card, header and connected-only sections show. */
+function renderConn(state) {
+  if (state) connState = state;
+  const st = connState, c = st === 'connected', rd = rememberedDevice;
+  const nm = (rd && rd.name) || (savedDev.get() || {}).name || 'Omi';
+  let sum;
+  if (c) sum = [devInfo.name || nm, devInfo.bat != null ? devInfo.bat + '%' + (devInfo.charging ? ' ⚡' : '') : null, devInfo.fw && 'fw ' + devInfo.fw, devInfo.codec].filter(Boolean).join(' · ');
+  else if (st === 'connecting') sum = `Connecting to ${nm}…`;
+  else if (st === 'waiting') sum = `Waiting for ${nm} to come into range…`;
+  else sum = rd ? `Last device: ${nm}` : 'Connect your Omi to get started';
+  $('connSummary').textContent = sum;
+  const pill = $('connPill');
+  pill.textContent = c ? 'Connected' : st === 'connecting' ? 'Connecting…' : st === 'waiting' ? 'Waiting…' : 'Not connected';
+  pill.className = 'pill ' + (c ? 'ok' : st === 'disconnected' ? 'bad' : 'warn');
+  $('btnConnect').hidden = c || !!rd;
+  $('btnReconnect').hidden = c || !rd; $('btnReconnect').textContent = `Reconnect to ${nm}`;
+  $('btnPick').hidden = c || !rd; $('btnDisconnect').hidden = !c; $('btnConnToggle').hidden = !c;
+  $('btnConnToggle').textContent = bodyOpen ? 'Details ▴' : 'Details ▾'; $('btnConnToggle').setAttribute('aria-expanded', String(bodyOpen));
+  $('connBody').hidden = c && !bodyOpen;
+  $('devGrid').hidden = !c; $('connectedOnly').hidden = !c;
+  $('rememberNote').hidden = !(rd && canRemember());
+  if (!c) $('recPill').hidden = true; else paintSettings();
+  refreshButtons();
+}
+
+async function findRemembered() {
+  const s = savedDev.get(); if (!s || !canRemember()) return null;
+  try { return (await navigator.bluetooth.getDevices()).find(d => d.id === s.id) || null; } catch { return null; }
+}
+function stopWaiting() { if (waitCtl) { waitCtl.abort(); waitCtl = null; } }
+
+/** Wait (passively) until the remembered Omi is advertising, then connect. */
+function waitForDevice(device) {
+  stopWaiting();
+  if (!device.watchAdvertisements) { renderConn('disconnected'); return; }
+  const ctl = waitCtl = new AbortController();
+  renderConn('waiting');
+  device.addEventListener('advertisementreceived', () => {
+    if (ctl.signal.aborted) return; ctl.abort(); waitCtl = null; connectTo(device, true);
+  }, { once: true });
+  device.watchAdvertisements({ signal: ctl.signal }).catch(() => {});
+}
+
+async function connectTo(device, quiet = false) {
+  if (connecting) return false;
+  connecting = true; stopWaiting(); renderConn('connecting');
   try {
     connCount++;
-    await link.connect($('chkAll').checked);
-    $('connPill').textContent = 'Connected'; $('connPill').className = 'pill ok';
-    $('devGrid').hidden = false; $('sName').textContent = link.device.name || 'Omi';
-    log('Connected to ' + (link.device.name || 'device'));
-    // Optional extras: never fatal
-    try { const bs = await link.server.getPrimaryService('battery_service'); const c = await bs.getCharacteristic('battery_level');
-      $('sBat').textContent = (await c.readValue()).getUint8(0) + '%'; } catch { $('sBat').textContent = '–'; }
-    try { const ds = await link.server.getPrimaryService('device_information'); const c = await ds.getCharacteristic('firmware_revision_string');
-      $('sFw').textContent = new TextDecoder().decode(await c.readValue()); } catch { $('sFw').textContent = '–'; }
-    try { const as = await link.server.getPrimaryService(UUID.audioSvc); const c = await as.getCharacteristic(UUID.codec);
-      codecId = (await c.readValue()).getUint8(0);
-      $('sCodec').textContent = { 20: 'Opus (10 ms)', 21: 'Opus (20 ms)', 1: 'PCM 8k', 0: 'PCM 16k', 10: 'µ-law 16k', 11: 'µ-law 8k' }[codecId] || 'id ' + codecId;
-    } catch { $('sCodec').textContent = '–'; }
-    refreshButtons();
-    await refreshDeviceInfo();
+    await link.open(device);
+    rememberedDevice = device; savedDev.set(device);
+    Object.assign(devInfo, { name: device.name || 'Omi', bat: null, fw: '', codec: '', charging: false }); bodyOpen = false;
+    connecting = false; renderConn('connected');
+    log('Connected to ' + devInfo.name);
+    await afterConnect();
+    return true;
   } catch (e) {
-    if (e.name === 'NotFoundError') { log('Device selection cancelled'); }
-    else { log(e.message, 'err'); alert(e.message); }
-    $('connPill').textContent = link.connected ? 'Connected' : 'Not connected'; refreshButtons();
+    connecting = false; link.disconnect();
+    log(e.message, quiet ? 'warn' : 'err');
+    renderConn('disconnected');
+    if (quiet && !e.fatal) waitForDevice(device); else if (!quiet) alert(e.message);
+    return false;
+  } finally { connecting = false; refreshButtons(); }
+}
+
+async function pickDevice() {
+  if (connecting) return;
+  let d;
+  try { d = await link.choose($('chkAll').checked); }
+  catch (e) { if (e.name === 'NotFoundError') log('Device selection cancelled'); else { log(e.message, 'err'); alert(e.message); } return; }
+  await connectTo(d);
+}
+
+async function forgetDevice() {
+  stopWaiting();
+  const d = rememberedDevice; rememberedDevice = null; savedDev.clear();
+  if (link.connected) link.disconnect();
+  try { if (d && d.forget) await d.forget(); } catch {}
+  renderConn('disconnected'); log('Forgot the remembered device');
+}
+
+/** Everything that happens right after a successful connection. Never throws. */
+async function afterConnect() {
+  const rd = async (svc, ch, fn) => { try { return fn(await link.readChar(svc, ch)); } catch { return null; } };
+  devInfo.bat = await rd('battery_service', 'battery_level', v => v.getUint8(0));
+  devInfo.fw = (await rd('device_information', 'firmware_revision_string', v => new TextDecoder().decode(v))) || '';
+  codecId = await rd(UUID.audioSvc, UUID.codec, v => v.getUint8(0));
+  devInfo.codec = codecId == null ? '' : (CODEC_NAMES[codecId] || 'codec ' + codecId);
+  try { devInfo.charging = !!(await link.getSetting(UUID.setCharging)); } catch {}
+  $('sName').textContent = devInfo.name; $('sFw').textContent = devInfo.fw || '–';
+  $('sBat').textContent = devInfo.bat != null ? devInfo.bat + '%' : '–'; $('sCodec').textContent = devInfo.codec || '–';
+  renderConn();
+  try { await refreshDeviceInfo(); }
+  catch (e) { log('Could not read stored-audio info: ' + e.message, 'warn'); $('infoNote').textContent = 'Could not read stored-audio info: ' + e.message + ' Press Refresh to retry.'; }
+  await loadSettings();
+}
+
+/* ---------- device settings ---------- */
+let settings = {}, settingBusy = false;
+const settingsOk = {};
+
+async function loadSettings() {
+  settings = {}; for (const k of Object.keys(settingsOk)) delete settingsOk[k];
+  let first = null;
+  for (const [k, u] of [['led', UUID.setLed], ['gain', UUID.setGain], ['mute', UUID.setMute]]) {
+    try { settings[k] = await link.getSetting(u); settingsOk[k] = true; } catch (e) { first = first || e; }
   }
+  if (first) {
+    log('Settings: ' + first.message, 'warn');
+    $('setNote').textContent = first.name === 'SecurityError'
+      ? 'This browser permission predates settings support: use Details → "Forget this device", then connect again.'
+      : Object.keys(settingsOk).length ? 'Some settings are unavailable on this firmware.' : 'Settings unavailable: ' + first.message;
+  } else $('setNote').textContent = '';
+  paintSettings(); refreshButtons();
+}
+
+function paintSettings() {
+  if (settings.led != null) { $('setLed').value = settings.led; $('setLedVal').textContent = settings.led + '%'; } else $('setLedVal').textContent = '–';
+  if (settings.gain != null) { $('setGain').value = settings.gain; $('setGainVal').textContent = settings.gain; } else $('setGainVal').textContent = '–';
+  if (settings.mute != null) $('setRec').checked = !settings.mute;
+  const paused = link.connected && settings.mute === 1;
+  $('recPill').hidden = !paused; $('liveMuted').hidden = !paused;
+  $('recHint').textContent = paused ? 'Paused: the Omi is not capturing any audio.' : 'Turn off to stop the Omi capturing audio (stored and live).';
+}
+
+async function applySetting(key, uuid, value) {
+  if (settingBusy) return;
+  settingBusy = true; refreshButtons();
+  try { await link.putSetting(uuid, value); settings[key] = await link.getSetting(uuid); $('setNote').textContent = ''; log(`Set ${key} = ${settings[key]}`); }
+  catch (e) { log(`Could not change ${key}: ${e.message}`, 'err'); $('setNote').textContent = 'Could not change the setting: ' + e.message; }
+  finally { settingBusy = false; paintSettings(); refreshButtons(); }
+}
+
+/* ---------- update check ---------- */
+const isVer = v => /^\d{10}$/.test(v);
+const fmtVer = v => isVer(v) ? `20${v.slice(0, 2)}-${v.slice(2, 4)}-${v.slice(4, 6)} ${v.slice(6, 8)}:${v.slice(8, 10)} UTC` : v;
+let lastCheck = 0;
+async function checkUpdate(manual) {
+  lastCheck = Date.now();
+  if (manual) $('updStatus').textContent = 'Checking…';
+  try {
+    const r = await fetch('version.json?_=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const v = String((await r.json()).version || '');
+    if (!isVer(v)) throw new Error('unreadable version file');
+    if (v > VERSION) { $('newVer').textContent = 'v' + v; $('updateBanner').hidden = false; if (manual) $('updStatus').textContent = 'Update available'; log(`Update available: v${v} (you have v${VERSION})`); }
+    else { $('updateBanner').hidden = true; if (manual) $('updStatus').textContent = 'You are up to date'; }
+  } catch (e) { if (manual) $('updStatus').textContent = 'Could not check (' + e.message + ')'; }
 }
 
 async function onDownload() {
@@ -827,8 +1068,20 @@ function updateLiveUi(final) {
 }
 
 /* ---------- wiring ---------- */
-$('btnConnect').onclick = onConnect;
-$('btnDisconnect').onclick = () => link.disconnect();
+$('btnConnect').onclick = pickDevice; $('btnPick').onclick = pickDevice;
+$('btnReconnect').onclick = () => rememberedDevice && connectTo(rememberedDevice);
+$('btnDisconnect').onclick = () => { stopWaiting(); link.disconnect(); };
+$('btnForget').onclick = forgetDevice;
+$('btnConnToggle').onclick = () => { bodyOpen = !bodyOpen; renderConn(); };
+$('setRec').onchange = () => applySetting('mute', UUID.setMute, $('setRec').checked ? 0 : 1);
+$('setLed').oninput = () => { $('setLedVal').textContent = $('setLed').value + '%'; };
+$('setLed').onchange = () => applySetting('led', UUID.setLed, +$('setLed').value);
+$('setGain').oninput = () => { $('setGainVal').textContent = $('setGain').value; };
+$('setGain').onchange = () => applySetting('gain', UUID.setGain, +$('setGain').value);
+$('btnUpdate').onclick = () => { if ((live.on || busy) && !confirm('A capture or download is running. Reload anyway?')) return; location.reload(); };
+$('lnkCheck').onclick = e => { e.preventDefault(); checkUpdate(true); };
+setInterval(() => checkUpdate(false), 15 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastCheck > 5 * 60 * 1000) checkUpdate(false); });
 $('btnInfo').onclick = async () => { setBusy(true); try { await refreshDeviceInfo(); } catch (e) { log(e.message, 'err'); } finally { setBusy(false); } };
 $('btnDownload').onclick = onDownload;
 $('btnCancel').onclick = () => link.cancel();
@@ -845,7 +1098,12 @@ $('btnLive').onclick = () => live.on ? endLive() : startLive();
 $('chkListen').onchange = () => { if (live.gain) live.gain.gain.value = $('chkListen').checked ? 1 : 0; };
 $('chkSaved').onchange = refreshButtons;
 $('gapSec').onchange = renderRecordings;
-link.onDisconnect = () => { if (live.on) endLive(); $('connPill').textContent = 'Not connected'; $('connPill').className = 'pill bad'; lastInfo = null; setBusy(false); };
+link.onDisconnect = user => {
+  if (live.on) endLive();
+  lastInfo = null; settings = {}; for (const k of Object.keys(settingsOk)) delete settingsOk[k];
+  setBusy(false); renderConn('disconnected');
+  if (!user && rememberedDevice && !connecting) waitForDevice(rememberedDevice);   // dropped: reconnect when it's back
+};
 
 
 if (!window.isSecureContext || !navigator.bluetooth) {
@@ -855,8 +1113,12 @@ if (!window.isSecureContext || !navigator.bluetooth) {
     : 'This browser has no Web Bluetooth. Use Chrome, Edge or Opera on desktop or Android (not Safari/Firefox, not iOS).';
   $('btnConnect').disabled = true;
 }
-refreshButtons();
+$('verLabel').textContent = VERSION === '0000000000' ? 'dev' : 'v' + VERSION;
+$('verFooter').textContent = VERSION === '0000000000' ? '(unstamped dev build)' : `v${VERSION} (${fmtVer(VERSION)})`;
+renderConn('disconnected');
 restoreLibrary();
+if (navigator.bluetooth) (async () => { const d = await findRemembered(); if (d) { rememberedDevice = d; renderConn(); connectTo(d, true); } })();
+setTimeout(() => checkUpdate(false), 1500);
 </script>
 </body>
 </html>
